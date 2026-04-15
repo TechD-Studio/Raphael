@@ -78,6 +78,15 @@ export interface AbResultDetail {
   results: AbRunResult[];
 }
 
+export interface ActivityEntry {
+  ts?: string;
+  type?: string;
+  agent?: string;
+  session?: string;
+  model?: string;
+  data?: Record<string, unknown>;
+}
+
 export interface AuditEntry {
   ts?: string;
   type?: string;
@@ -185,6 +194,11 @@ export const api = {
   abResults: () => jget<AbResultSummary[]>("/ab-results"),
   abResult: (name: string) =>
     jget<AbResultDetail>(`/ab-results/${encodeURIComponent(name)}`),
+
+  activity: (tail = 200, session = "") =>
+    jget<ActivityEntry[]>(
+      `/activity?tail=${tail}${session ? `&session=${encodeURIComponent(session)}` : ""}`,
+    ),
 
   audit: (tail = 200) => jget<AuditEntry[]>(`/audit?tail=${tail}`),
   auditVerify: () =>

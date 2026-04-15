@@ -351,6 +351,35 @@ body {
   margin-bottom: 12px;
   font-size: 13px;
 }
+.activity-log {
+  font-family: ui-monospace, SF Mono, monospace;
+  font-size: 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  max-height: 560px;
+  overflow-y: auto;
+}
+.activity-row {
+  display: grid;
+  grid-template-columns: 80px 160px 120px 1fr;
+  gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid #1e293b;
+  align-items: baseline;
+}
+.activity-ts { color: #64748b; }
+.activity-agent {
+  color: #60a5fa;
+  font-size: 11px;
+}
+.activity-data {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #cbd5e1;
+}
 .rule-card {
   border: 1px solid #e7e9ef;
   border-radius: 8px;

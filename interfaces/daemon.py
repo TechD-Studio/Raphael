@@ -324,6 +324,29 @@ def _ab_results_dir() -> Path:
     return Path.home() / ".raphael" / "ab_results"
 
 
+@app.get("/activity")
+def activity_tail(tail: int = 200, session: str = ""):
+    from core.activity_log import log_path
+
+    p = log_path()
+    if not p.exists():
+        return []
+    lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    out = []
+    for line in lines[-tail:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            e = json.loads(line)
+        except Exception:
+            continue
+        if session and e.get("session") != session:
+            continue
+        out.append(e)
+    return out
+
+
 @app.get("/audit")
 def audit_show(tail: int = 200):
     from core import audit

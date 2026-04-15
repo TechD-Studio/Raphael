@@ -4,13 +4,14 @@ import {
   type AbResultDetail,
   type AbResultSummary,
   type AbRunResult,
+  type ActivityEntry,
   type AuditEntry,
   type Checkpoint,
   type FailureDetail,
   type FailureSummary,
 } from "./api";
 
-type Tab = "ab" | "failures" | "checkpoints" | "audit";
+type Tab = "ab" | "failures" | "checkpoints" | "audit" | "activity";
 
 export default function Dashboard({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("ab");
@@ -46,6 +47,12 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
           >
             Audit
           </button>
+          <button
+            className={tab === "activity" ? "active" : ""}
+            onClick={() => setTab("activity")}
+          >
+            활동 로그
+          </button>
         </nav>
       </header>
       <main className="settings-body">
@@ -53,6 +60,7 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
         {tab === "failures" && <FailuresTab />}
         {tab === "checkpoints" && <CheckpointsTab />}
         {tab === "audit" && <AuditTab />}
+        {tab === "activity" && <ActivityTab />}
       </main>
     </div>
   );
@@ -491,6 +499,150 @@ function AuditTab() {
             ))}
           </tbody>
         </table>
+      )}
+    </>
+  );
+}
+
+function ActivityTab() {
+  const [list, setList] = useState<ActivityEntry[]>([]);
+  const [tail, setTail] = useState(200);
+  const [session, setSession] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [auto, setAuto] = useState(true);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  async function refresh() {
+    try {
+      setList(await api.activity(tail, session));
+      setErr("");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tail, session]);
+
+  useEffect(() => {
+    if (!auto) return;
+    const id = setInterval(refresh, 3000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, tail, session]);
+
+  const filtered = typeFilter
+    ? list.filter((e) => e.type === typeFilter)
+    : list;
+  const types = Array.from(new Set(list.map((e) => e.type || ""))).filter(Boolean);
+
+  function eventColor(t?: string): string {
+    switch (t) {
+      case "user_message":
+        return "#2563eb";
+      case "model_call_start":
+      case "model_call_end":
+        return "#7c3aed";
+      case "token_chunk":
+        return "#9ca3af";
+      case "tool_call":
+        return "#ca8a04";
+      case "tool_result":
+        return "#16a34a";
+      default:
+        return "#4b5563";
+    }
+  }
+
+  return (
+    <>
+      <div className="panel-toolbar" style={{ flexWrap: "wrap", gap: 8 }}>
+        <button onClick={refresh}>새로고침</button>
+        <label className="muted" style={{ fontSize: 12 }}>
+          <input
+            type="checkbox"
+            checked={auto}
+            onChange={(e) => setAuto(e.target.checked)}
+            style={{ marginRight: 4 }}
+          />
+          자동 새로고침 (3초)
+        </label>
+        <label className="muted" style={{ fontSize: 12 }}>
+          Tail:
+          <select
+            value={tail}
+            onChange={(e) => setTail(parseInt(e.target.value))}
+            style={{ marginLeft: 6 }}
+          >
+            <option value={100}>100</option>
+            <option value={200}>200</option>
+            <option value={500}>500</option>
+            <option value={1000}>1000</option>
+          </select>
+        </label>
+        <input
+          placeholder="session id 필터"
+          value={session}
+          onChange={(e) => setSession(e.target.value)}
+          style={{
+            border: "1px solid #d4d7df",
+            borderRadius: 4,
+            padding: "4px 8px",
+            fontSize: 12,
+            width: 180,
+          }}
+        />
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          style={{
+            border: "1px solid #d4d7df",
+            borderRadius: 4,
+            padding: "4px 8px",
+            fontSize: 12,
+          }}
+        >
+          <option value="">전체 타입</option>
+          {types.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </div>
+      {err && <div className="err">{err}</div>}
+      {loading && <div className="muted">불러오는 중...</div>}
+      {!loading && filtered.length === 0 && (
+        <div className="muted">
+          활동 로그가 비어있습니다 (<code>~/.raphael/activity.jsonl</code>).
+        </div>
+      )}
+      {!loading && filtered.length > 0 && (
+        <div className="activity-log">
+          {filtered.map((e, i) => (
+            <div key={i} className="activity-row">
+              <span className="activity-ts">
+                {(e.ts || "").slice(11, 19)}
+              </span>
+              <span
+                className="activity-type"
+                style={{ color: eventColor(e.type), fontWeight: 600 }}
+              >
+                {e.type}
+              </span>
+              {e.agent && <span className="activity-agent">{e.agent}</span>}
+              {e.model && <span className="activity-agent">{e.model}</span>}
+              <span className="activity-data" title={JSON.stringify(e.data)}>
+                {JSON.stringify(e.data).slice(0, 240)}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
     </>
   );
