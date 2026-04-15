@@ -240,6 +240,32 @@ export const api = {
     return r.json();
   },
 
+  allowedPaths: () =>
+    jget<{ allowed_paths: string[] }>("/settings/allowed-paths"),
+  saveAllowedPaths: (allowed_paths: string[]) =>
+    jpost<{ ok: boolean; count: number; allowed_paths: string[] }>(
+      "/settings/allowed-paths",
+      { allowed_paths },
+    ),
+
+  listSecrets: () =>
+    jget<{ keys: { key: string; source: string; in_keychain: boolean }[] }>(
+      "/secrets",
+    ),
+  setSecret: (key: string, value: string) =>
+    jpost<{ ok: boolean; key: string; backend: string }>("/secrets", {
+      key,
+      value,
+    }),
+  deleteSecret: async (key: string) => {
+    const r = await fetch(
+      `${BASE}/secrets/${encodeURIComponent(key)}`,
+      { method: "DELETE" },
+    );
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  },
+
   ragStatus: () =>
     jget<{
       vault_path: string;

@@ -640,6 +640,83 @@ def save_routing(req: RoutingReq):
     return {"ok": True, "strategy": req.strategy, "rules_count": len(req.rules)}
 
 
+@app.get("/settings/allowed-paths")
+def get_allowed_paths_api():
+    from config.settings import get_settings
+
+    s = get_settings()
+    paths = (s.get("tools") or {}).get("file", {}).get("allowed_paths", []) or []
+    return {"allowed_paths": list(paths)}
+
+
+class AllowedPathsReq(BaseModel):
+    allowed_paths: list[str]
+
+
+@app.post("/settings/allowed-paths")
+def set_allowed_paths_api(req: AllowedPathsReq):
+    from config.settings import save_local_settings
+
+    paths = [p.strip() for p in req.allowed_paths if p.strip()]
+    save_local_settings({"tools": {"file": {"allowed_paths": paths}}})
+    return {"ok": True, "count": len(paths), "allowed_paths": paths}
+
+
+@app.get("/secrets")
+def list_secrets():
+    """Keychain은 일반 enumeration을 노출하지 않음 — .env fallback으로 알려진 키만 표시."""
+    from pathlib import Path as _P
+
+    known: list[dict] = []
+    env = _P.home() / ".raphael" / ".env"
+    project_env = Path.cwd() / ".env"
+    for src_path, source in [(env, "user-env"), (project_env, "project-env")]:
+        if src_path.exists():
+            for line in src_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _ = line.split("=", 1)
+                    known.append({"key": k.strip(), "source": source})
+
+    # Keychain 확인: 각 알려진 키를 실제로 조회해보기
+    try:
+        from core.secrets import get_secret
+
+        for e in known:
+            if get_secret(e["key"]) is not None:
+                e["in_keychain"] = True
+            else:
+                e["in_keychain"] = False
+    except Exception:
+        for e in known:
+            e["in_keychain"] = False
+
+    return {"keys": known}
+
+
+class SecretSetReq(BaseModel):
+    key: str
+    value: str
+
+
+@app.post("/secrets")
+def set_secret_api(req: SecretSetReq):
+    from core.secrets import set_secret
+
+    if not req.key.strip():
+        raise HTTPException(400, "key required")
+    backend = set_secret(req.key.strip(), req.value)
+    return {"ok": True, "key": req.key, "backend": backend}
+
+
+@app.delete("/secrets/{key}")
+def delete_secret_api(key: str):
+    from core.secrets import delete_secret
+
+    ok = delete_secret(key)
+    return {"deleted": ok, "key": key}
+
+
 @app.get("/settings/server")
 def get_server_settings():
     from config.settings import get_settings

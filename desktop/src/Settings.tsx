@@ -9,7 +9,13 @@ import {
   type RoutingRule,
 } from "./api";
 
-type Tab = "agents" | "models" | "routing" | "rag" | "server";
+type Tab =
+  | "agents"
+  | "models"
+  | "routing"
+  | "rag"
+  | "security"
+  | "server";
 
 export default function Settings({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("agents");
@@ -47,6 +53,12 @@ export default function Settings({ onBack }: { onBack: () => void }) {
             RAG
           </button>
           <button
+            className={tab === "security" ? "active" : ""}
+            onClick={() => setTab("security")}
+          >
+            보안
+          </button>
+          <button
             className={tab === "server" ? "active" : ""}
             onClick={() => setTab("server")}
           >
@@ -59,6 +71,7 @@ export default function Settings({ onBack }: { onBack: () => void }) {
         {tab === "models" && <ModelsPanel />}
         {tab === "routing" && <RoutingPanel />}
         {tab === "rag" && <RagPanel />}
+        {tab === "security" && <SecurityPanel />}
         {tab === "server" && <ServerPanel />}
       </main>
     </div>
@@ -809,6 +822,207 @@ function RagPanel() {
         </button>
         <button onClick={reindex} disabled={busy}>
           전체 재인덱싱
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SecurityPanel() {
+  const [paths, setPaths] = useState<string[]>([]);
+  const [newPath, setNewPath] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const [secrets, setSecrets] = useState<
+    { key: string; source: string; in_keychain: boolean }[]
+  >([]);
+  const [newKey, setNewKey] = useState("");
+  const [newVal, setNewVal] = useState("");
+
+  async function refresh() {
+    try {
+      const [p, s] = await Promise.all([api.allowedPaths(), api.listSecrets()]);
+      setPaths(p.allowed_paths);
+      setSecrets(s.keys);
+      setErr("");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoaded(true);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function savePaths() {
+    try {
+      await api.saveAllowedPaths(paths);
+      setMsg("저장됨.");
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  function addPath() {
+    if (!newPath.trim()) return;
+    setPaths([...paths, newPath.trim()]);
+    setNewPath("");
+  }
+
+  function removePath(i: number) {
+    setPaths(paths.filter((_, idx) => idx !== i));
+  }
+
+  async function saveSecret() {
+    if (!newKey.trim()) return;
+    try {
+      await api.setSecret(newKey.trim(), newVal);
+      setMsg(`${newKey} 저장됨.`);
+      setNewKey("");
+      setNewVal("");
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  async function delSecret(k: string) {
+    if (!confirm(`${k} 삭제?`)) return;
+    try {
+      await api.deleteSecret(k);
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  if (!loaded) return <div className="muted">불러오는 중...</div>;
+
+  return (
+    <div>
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="ok-msg">{msg}</div>}
+
+      <h3 style={{ marginTop: 0 }}>허용 경로 (Allowed Paths)</h3>
+      <p className="muted">
+        파일 도구(read_file/write_file/...)가 접근 가능한 경로. 비우면 홈 +
+        /tmp + cwd 자동 허용.
+      </p>
+      <ul className="model-list" style={{ marginBottom: 12 }}>
+        {paths.map((p, i) => (
+          <li key={i}>
+            <code>{p}</code>
+            <button
+              style={{ marginLeft: "auto" }}
+              onClick={() => removePath(i)}
+            >
+              삭제
+            </button>
+          </li>
+        ))}
+        {paths.length === 0 && (
+          <li>
+            <span className="muted">(빈 리스트 — 기본값 적용)</span>
+          </li>
+        )}
+      </ul>
+      <div className="row" style={{ marginBottom: 16 }}>
+        <input
+          placeholder="예: ~/Projects"
+          value={newPath}
+          onChange={(e) => setNewPath(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addPath()}
+          style={{
+            flex: 1,
+            border: "1px solid #d4d7df",
+            borderRadius: 6,
+            padding: "6px 10px",
+          }}
+        />
+        <button onClick={addPath}>추가</button>
+        <button className="primary" onClick={savePaths}>
+          저장
+        </button>
+      </div>
+
+      <h3>Keychain 시크릿</h3>
+      <p className="muted">
+        OS Keychain(macOS) / Secret Service(Linux) / Credential Manager(Windows)
+        에 저장됩니다. 키 목록은 <code>.env</code> 기반 — Keychain은 목록
+        조회를 지원하지 않습니다.
+      </p>
+      <table className="agent-table" style={{ marginBottom: 12 }}>
+        <thead>
+          <tr>
+            <th>키</th>
+            <th>.env 출처</th>
+            <th>Keychain</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {secrets.length === 0 && (
+            <tr>
+              <td colSpan={4} className="muted">
+                저장된 시크릿 없음
+              </td>
+            </tr>
+          )}
+          {secrets.map((s) => (
+            <tr key={s.key + s.source}>
+              <td>
+                <code>{s.key}</code>
+              </td>
+              <td>{s.source}</td>
+              <td>
+                {s.in_keychain ? (
+                  <span
+                    className="badge"
+                    style={{ background: "#dcfce7", color: "#166534" }}
+                  >
+                    있음
+                  </span>
+                ) : (
+                  <span className="muted">없음</span>
+                )}
+              </td>
+              <td className="actions">
+                <button onClick={() => delSecret(s.key)}>삭제</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="row">
+        <input
+          placeholder="키 (예: TELEGRAM_BOT_TOKEN)"
+          value={newKey}
+          onChange={(e) => setNewKey(e.target.value)}
+          style={{
+            border: "1px solid #d4d7df",
+            borderRadius: 6,
+            padding: "6px 10px",
+            width: 260,
+          }}
+        />
+        <input
+          type="password"
+          placeholder="값"
+          value={newVal}
+          onChange={(e) => setNewVal(e.target.value)}
+          style={{
+            flex: 1,
+            border: "1px solid #d4d7df",
+            borderRadius: 6,
+            padding: "6px 10px",
+          }}
+        />
+        <button className="primary" onClick={saveSecret}>
+          저장
         </button>
       </div>
     </div>
