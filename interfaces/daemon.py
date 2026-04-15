@@ -118,6 +118,46 @@ def get_session(sid: str):
     return {"id": s.id, "agent": s.agent, "conversation": s.conversation}
 
 
+@app.get("/sessions/{sid}/export")
+def export_session(sid: str, fmt: str = "markdown"):
+    s = Session.load(sid)
+    if not s:
+        raise HTTPException(404, "세션 없음")
+    if fmt == "json":
+        content = json.dumps(
+            {"id": s.id, "agent": s.agent, "conversation": s.conversation},
+            ensure_ascii=False,
+            indent=2,
+        )
+        return {"format": "json", "content": content, "filename": f"{s.id}.json"}
+    # markdown
+    lines = [f"# Raphael 대화 — {s.id}\n"]
+    for m in s.conversation:
+        role = m.get("role", "")
+        content = m.get("content", "")
+        if role == "user":
+            lines.append(f"\n**User**\n\n{content}\n")
+        elif role == "assistant":
+            lines.append(f"\n**Raphael**\n\n{content}\n")
+        elif role == "system":
+            lines.append(f"\n_system: {content}_\n")
+    return {
+        "format": "markdown",
+        "content": "\n".join(lines),
+        "filename": f"{s.id}.md",
+    }
+
+
+@app.get("/models/token-stats")
+def token_stats():
+    orch = _init_runtime()
+    try:
+        stats = orch.router.get_token_stats()
+    except Exception as e:
+        raise HTTPException(500, f"토큰 통계 오류: {e}")
+    return stats or {}
+
+
 @app.delete("/sessions/{sid}")
 def delete_session(sid: str):
     p = sessions_dir() / f"{sid}.json"

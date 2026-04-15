@@ -115,6 +115,15 @@ export const api = {
   models: () => jget<ModelsInfo>("/models"),
   useModel: (key: string) => jpost<{ current: string }>("/models/use", { key }),
 
+  exportSession: (id: string, fmt: "markdown" | "json") =>
+    jget<{ format: string; content: string; filename: string }>(
+      `/sessions/${encodeURIComponent(id)}/export?fmt=${fmt}`,
+    ),
+  tokenStats: () =>
+    jget<Record<string, { calls: number; prompt: number; completion: number; total_ms: number }>>(
+      "/models/token-stats",
+    ),
+
   abResults: () => jget<AbResultSummary[]>("/ab-results"),
   abResult: (name: string) =>
     jget<AbResultDetail>(`/ab-results/${encodeURIComponent(name)}`),

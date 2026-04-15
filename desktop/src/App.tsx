@@ -131,6 +131,43 @@ export default function App() {
     } catch {}
   }
 
+  async function exportCurrent(fmt: "markdown" | "json") {
+    if (!activeSid) return;
+    try {
+      const res = await api.exportSession(activeSid, fmt);
+      const mime = fmt === "json" ? "application/json" : "text/markdown";
+      const blob = new Blob([res.content], { type: `${mime};charset=utf-8` });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`export 실패: ${e}`);
+    }
+  }
+
+  async function showTokens() {
+    try {
+      const stats = await api.tokenStats();
+      const entries = Object.entries(stats);
+      if (!entries.length) {
+        alert("아직 호출 기록이 없습니다.");
+        return;
+      }
+      const lines = entries.map(([model, s]) => {
+        const total = s.prompt + s.completion;
+        return `${model}\n  ${s.calls}회, prompt ${s.prompt.toLocaleString()} + completion ${s.completion.toLocaleString()} = ${total.toLocaleString()} tokens, ${(s.total_ms / 1000).toFixed(1)}s`;
+      });
+      alert("토큰 사용량\n\n" + lines.join("\n\n"));
+    } catch (e) {
+      alert(`token stats 실패: ${e}`);
+    }
+  }
+
   if (view === "settings") {
     return <Settings onBack={() => setView("chat")} />;
   }
@@ -204,6 +241,35 @@ export default function App() {
       </aside>
 
       <main className="chat">
+        <div className="chat-toolbar">
+          <span className="muted" style={{ fontSize: 12 }}>
+            {activeSid ? `session: ${activeSid}` : "new session"}
+          </span>
+          <div className="spacer" />
+          <button
+            className="tool-btn"
+            disabled={!activeSid || messages.length === 0}
+            onClick={() => exportCurrent("markdown")}
+            title="대화를 Markdown으로 저장"
+          >
+            Export MD
+          </button>
+          <button
+            className="tool-btn"
+            disabled={!activeSid || messages.length === 0}
+            onClick={() => exportCurrent("json")}
+            title="대화를 JSON으로 저장"
+          >
+            Export JSON
+          </button>
+          <button
+            className="tool-btn"
+            onClick={showTokens}
+            title="모델별 토큰 사용량"
+          >
+            Tokens
+          </button>
+        </div>
         <div className="messages" ref={scrollRef}>
           {messages.map((m, i) => (
             <div key={i} className={`msg msg-${m.role}`}>
