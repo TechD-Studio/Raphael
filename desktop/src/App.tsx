@@ -29,6 +29,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchHits, setSearchHits] = useState<SessionHit[]>([]);
   const [tagFilter, setTagFilter] = useState<string>("");
+  const [pendingDelSid, setPendingDelSid] = useState<string>("");
   const [searching, setSearching] = useState(false);
   const [agentNames, setAgentNames] = useState<string[]>([]);
   const [targetAgent, setTargetAgent] = useState<string>("");
@@ -182,12 +183,21 @@ export default function App() {
   }
 
   async function deleteSession(sid: string) {
-    if (!confirm(`세션 ${sid.slice(0, 8)}... 삭제할까요?`)) return;
+    if (pendingDelSid !== sid) {
+      setPendingDelSid(sid);
+      setTimeout(() => {
+        setPendingDelSid((cur) => (cur === sid ? "" : cur));
+      }, 3000);
+      return;
+    }
+    setPendingDelSid("");
     try {
       await api.deleteSession(sid);
       if (sid === activeSid) startNewSession();
       await refreshSessions();
-    } catch {}
+    } catch (e: any) {
+      alert(`세션 삭제 실패: ${e?.message || e}`);
+    }
   }
 
   async function toggleRecord() {
@@ -720,13 +730,18 @@ export default function App() {
                 <span>{s.agent}</span>
                 <span>{s.turns}턴</span>
                 <button
-                  className="del"
+                  className={`del ${pendingDelSid === s.id ? "pending" : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     deleteSession(s.id);
                   }}
+                  title={
+                    pendingDelSid === s.id
+                      ? "한 번 더 눌러 삭제"
+                      : "삭제"
+                  }
                 >
-                  ✕
+                  {pendingDelSid === s.id ? "정말?" : "✕"}
                 </button>
               </div>
             </div>
