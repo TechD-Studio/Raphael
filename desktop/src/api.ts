@@ -46,6 +46,31 @@ export interface AgentDetail {
   active: boolean;
 }
 
+export interface ProfileFact {
+  id: string;
+  text: string;
+  added: string;
+  source: string;
+}
+
+export interface PoolServer {
+  name: string;
+  host: string;
+  port: number;
+  weight: number;
+  models: string[];
+  timeout: number;
+}
+
+export interface HookWatch {
+  path: string;
+  patterns: string[];
+  events: string[];
+  agent: string;
+  prompt: string;
+  debounce_seconds: number;
+}
+
 export interface SkillInfo {
   name: string;
   description: string;
@@ -367,6 +392,38 @@ export const api = {
       payload,
     ),
 
+  profile: () => jget<{ facts: ProfileFact[] }>("/profile"),
+  addFact: (text: string, source = "user") =>
+    jpost<ProfileFact>("/profile", { text, source }),
+  deleteFact: async (id: string) => {
+    const r = await fetch(`${BASE}/profile/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  },
+  clearProfile: async () => {
+    const r = await fetch(`${BASE}/profile`, { method: "DELETE" });
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  },
+
+  poolStatus: () =>
+    jget<{ configured: PoolServer[]; health: any[] }>("/pool"),
+  savePool: (servers: PoolServer[]) =>
+    jpost<{ ok: boolean; count: number }>("/pool", { servers }),
+  installedModels: () =>
+    jget<{ host: string; models: string[]; error?: string }>(
+      "/models/installed",
+    ),
+  pullModel: (name: string) =>
+    jpost<{ ok: boolean; name: string; result: any }>("/models/pull", { name }),
+
+  hookWatches: () =>
+    jget<{ watches: HookWatch[] }>("/hooks/watches"),
+  saveHookWatches: (watches: HookWatch[]) =>
+    jpost<{ ok: boolean; count: number }>("/hooks/watches", { watches }),
+
   takeScreenshot: () =>
     jpost<{ data_url: string; size: number }>("/screenshot", {}),
 
@@ -383,11 +440,12 @@ export const api = {
       onToolCall?: (data: any) => void;
     },
     images: string[] = [],
+    skill: string | undefined = undefined,
   ) {
     const r = await fetch(`${BASE}/sessions/${sid}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content, agent, images }),
+      body: JSON.stringify({ content, agent, images, skill }),
     });
     if (!r.ok || !r.body) throw new Error(`${r.status}`);
     const reader = r.body.getReader();

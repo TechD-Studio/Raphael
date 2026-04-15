@@ -4,7 +4,10 @@ import {
   type AgentDetail,
   type AgentInfo,
   type AgentUpsert,
+  type HookWatch,
   type ModelsInfo,
+  type PoolServer,
+  type ProfileFact,
   type RoutingConfig,
   type RoutingRule,
   type SkillDetail,
@@ -18,6 +21,9 @@ type Tab =
   | "models"
   | "routing"
   | "rag"
+  | "profile"
+  | "pool"
+  | "hooks"
   | "security"
   | "server";
 
@@ -63,6 +69,24 @@ export default function Settings({ onBack }: { onBack: () => void }) {
             RAG
           </button>
           <button
+            className={tab === "profile" ? "active" : ""}
+            onClick={() => setTab("profile")}
+          >
+            프로필
+          </button>
+          <button
+            className={tab === "pool" ? "active" : ""}
+            onClick={() => setTab("pool")}
+          >
+            풀
+          </button>
+          <button
+            className={tab === "hooks" ? "active" : ""}
+            onClick={() => setTab("hooks")}
+          >
+            훅
+          </button>
+          <button
             className={tab === "security" ? "active" : ""}
             onClick={() => setTab("security")}
           >
@@ -82,6 +106,9 @@ export default function Settings({ onBack }: { onBack: () => void }) {
         {tab === "models" && <ModelsPanel />}
         {tab === "routing" && <RoutingPanel />}
         {tab === "rag" && <RagPanel />}
+        {tab === "profile" && <ProfilePanel />}
+        {tab === "pool" && <PoolPanel />}
+        {tab === "hooks" && <HooksPanel />}
         {tab === "security" && <SecurityPanel />}
         {tab === "server" && <ServerPanel />}
       </main>
@@ -380,12 +407,22 @@ function AgentEditor({
 
 function ModelsPanel() {
   const [info, setInfo] = useState<ModelsInfo | null>(null);
+  const [installed, setInstalled] = useState<{
+    host: string;
+    models: string[];
+    error?: string;
+  } | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pullName, setPullName] = useState("");
+  const [pullMsg, setPullMsg] = useState("");
 
   async function refresh() {
     try {
       setInfo(await api.models());
+      try {
+        setInstalled(await api.installedModels());
+      } catch {}
     } catch (e: any) {
       setErr(e.message);
     }
@@ -394,6 +431,22 @@ function ModelsPanel() {
   useEffect(() => {
     refresh();
   }, []);
+
+  async function pull() {
+    if (!pullName.trim()) return;
+    setBusy(true);
+    setPullMsg("");
+    try {
+      await api.pullModel(pullName);
+      setPullMsg(`${pullName} pull 완료.`);
+      setPullName("");
+      await refresh();
+    } catch (e: any) {
+      setPullMsg(`실패: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function choose(key: string) {
     setBusy(true);
@@ -431,8 +484,50 @@ function ModelsPanel() {
           </li>
         ))}
       </ul>
-      <p className="muted">
-        모델 추가는 <code>~/.raphael/settings.yaml</code> 에서 관리합니다.
+      <h4 style={{ marginTop: 24, marginBottom: 8 }}>
+        Ollama 서버 설치 모델
+      </h4>
+      {installed?.error && <div className="err">{installed.error}</div>}
+      {installed && installed.models.length === 0 && !installed.error && (
+        <div className="muted">설치된 모델 없음 ({installed.host})</div>
+      )}
+      {installed && installed.models.length > 0 && (
+        <div className="muted" style={{ marginBottom: 8 }}>
+          {installed.host} —{" "}
+          {installed.models.map((m) => (
+            <code key={m} style={{ marginRight: 6, fontSize: 11 }}>
+              {m}
+            </code>
+          ))}
+        </div>
+      )}
+      <div className="row">
+        <input
+          placeholder="새 모델 pull (예: gemma3:vision)"
+          value={pullName}
+          onChange={(e) => setPullName(e.target.value)}
+          style={{
+            flex: 1,
+            border: "1px solid #d4d7df",
+            borderRadius: 6,
+            padding: "6px 10px",
+          }}
+        />
+        <button onClick={pull} disabled={busy || !pullName.trim()}>
+          {busy ? "Pull 중..." : "Pull"}
+        </button>
+      </div>
+      {pullMsg && (
+        <div
+          className={pullMsg.startsWith("실패") ? "err" : "ok-msg"}
+          style={{ marginTop: 8 }}
+        >
+          {pullMsg}
+        </div>
+      )}
+      <p className="muted" style={{ marginTop: 12 }}>
+        라우터에 새 모델 등록은 <code>~/.raphael/settings.yaml</code> 의
+        models.ollama.available 직접 수정 (향후 UI 예정).
       </p>
     </div>
   );
@@ -1253,6 +1348,441 @@ function SecurityPanel() {
           }}
         />
         <button className="primary" onClick={saveSecret}>
+          저장
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProfilePanel() {
+  const [facts, setFacts] = useState<ProfileFact[]>([]);
+  const [text, setText] = useState("");
+  const [err, setErr] = useState("");
+
+  async function refresh() {
+    try {
+      const r = await api.profile();
+      setFacts(r.facts);
+      setErr("");
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function add() {
+    if (!text.trim()) return;
+    try {
+      await api.addFact(text);
+      setText("");
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  async function del(id: string) {
+    if (!confirm("삭제?")) return;
+    try {
+      await api.deleteFact(id);
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  async function clearAll() {
+    if (!confirm("모든 fact 삭제?")) return;
+    try {
+      await api.clearProfile();
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  return (
+    <div>
+      <p className="muted">
+        Orchestrator가 매 라우팅 시 system 메시지로 자동 주입합니다. 이름,
+        선호도, 사용 환경, 자주 쓰는 도구 등을 기록하세요.
+      </p>
+      {err && <div className="err">{err}</div>}
+      <table className="agent-table">
+        <thead>
+          <tr>
+            <th>내용</th>
+            <th>출처</th>
+            <th>추가 시각</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {facts.length === 0 && (
+            <tr>
+              <td colSpan={4} className="muted">
+                저장된 fact 없음
+              </td>
+            </tr>
+          )}
+          {facts.map((f) => (
+            <tr key={f.id}>
+              <td>{f.text}</td>
+              <td style={{ fontSize: 11 }}>{f.source}</td>
+              <td style={{ fontSize: 11 }}>{f.added.replace("T", " ")}</td>
+              <td className="actions">
+                <button onClick={() => del(f.id)}>삭제</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="row" style={{ marginTop: 8 }}>
+        <input
+          placeholder="예: 사용자는 한국어 응답 선호"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          style={{
+            flex: 1,
+            border: "1px solid #d4d7df",
+            borderRadius: 6,
+            padding: "6px 10px",
+          }}
+        />
+        <button className="primary" onClick={add}>
+          추가
+        </button>
+        {facts.length > 0 && <button onClick={clearAll}>전체 삭제</button>}
+      </div>
+    </div>
+  );
+}
+
+function PoolPanel() {
+  const [servers, setServers] = useState<PoolServer[]>([]);
+  const [health, setHealth] = useState<any[]>([]);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  async function refresh() {
+    try {
+      const r = await api.poolStatus();
+      setServers(r.configured as PoolServer[]);
+      setHealth(r.health);
+      setErr("");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoaded(true);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  function update(i: number, patch: Partial<PoolServer>) {
+    const next = [...servers];
+    next[i] = { ...next[i], ...patch };
+    setServers(next);
+  }
+
+  function add() {
+    setServers([
+      ...servers,
+      {
+        name: `server-${servers.length + 1}`,
+        host: "localhost",
+        port: 11434,
+        weight: 1,
+        models: [],
+        timeout: 120,
+      },
+    ]);
+  }
+
+  function remove(i: number) {
+    setServers(servers.filter((_, idx) => idx !== i));
+  }
+
+  async function save() {
+    try {
+      await api.savePool(servers);
+      setMsg("저장됨. 라우터 재초기화.");
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  if (!loaded) return <div className="muted">불러오는 중...</div>;
+
+  return (
+    <div>
+      <p className="muted">
+        다중 Ollama 서버를 등록해 모델별로 라우팅합니다. 비어있으면 단일 서버
+        모드 (서버 탭).
+      </p>
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="ok-msg">{msg}</div>}
+
+      {servers.map((srv, i) => {
+        const h = health[i];
+        return (
+          <div key={i} className="rule-card">
+            <div className="rule-head">
+              <input
+                value={srv.name}
+                onChange={(e) => update(i, { name: e.target.value })}
+                style={{
+                  border: "1px solid #d4d7df",
+                  borderRadius: 4,
+                  padding: "3px 8px",
+                  width: 140,
+                }}
+              />
+              {h && h.health && (
+                <span
+                  className="badge"
+                  style={{
+                    background: h.health.ok ? "#dcfce7" : "#fee2e2",
+                    color: h.health.ok ? "#166534" : "#991b1b",
+                  }}
+                >
+                  {h.health.ok ? "online" : "offline"}
+                </span>
+              )}
+              <div style={{ flex: 1 }} />
+              <button onClick={() => remove(i)}>삭제</button>
+            </div>
+            <div className="rule-body">
+              <div className="rule-col">
+                <label>
+                  Host
+                  <input
+                    value={srv.host}
+                    onChange={(e) => update(i, { host: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Port
+                  <input
+                    type="number"
+                    value={srv.port}
+                    onChange={(e) =>
+                      update(i, { port: parseInt(e.target.value) || 11434 })
+                    }
+                  />
+                </label>
+                <label>
+                  Weight
+                  <input
+                    type="number"
+                    value={srv.weight}
+                    onChange={(e) =>
+                      update(i, { weight: parseInt(e.target.value) || 1 })
+                    }
+                  />
+                </label>
+              </div>
+              <div className="rule-col">
+                <label>
+                  보유 모델 (쉼표 구분)
+                  <input
+                    value={srv.models.join(", ")}
+                    onChange={(e) =>
+                      update(i, {
+                        models: e.target.value
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean),
+                      })
+                    }
+                    placeholder="gemma4:e4b, gemma4:26b"
+                  />
+                </label>
+                <label>
+                  Timeout (s)
+                  <input
+                    type="number"
+                    value={srv.timeout}
+                    onChange={(e) =>
+                      update(i, { timeout: parseInt(e.target.value) || 120 })
+                    }
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      <div className="row">
+        <button onClick={add}>+ 서버 추가</button>
+        <button className="primary" onClick={save}>
+          저장
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function HooksPanel() {
+  const [watches, setWatches] = useState<HookWatch[]>([]);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  async function refresh() {
+    try {
+      const r = await api.hookWatches();
+      setWatches(r.watches);
+      setErr("");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoaded(true);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  function update(i: number, patch: Partial<HookWatch>) {
+    const next = [...watches];
+    next[i] = { ...next[i], ...patch };
+    setWatches(next);
+  }
+
+  function add() {
+    setWatches([
+      ...watches,
+      {
+        path: "~/projects/myrepo",
+        patterns: ["*.py"],
+        events: ["modified", "created"],
+        agent: "",
+        prompt: "파일 {path}가 {event}되었습니다.",
+        debounce_seconds: 3,
+      },
+    ]);
+  }
+
+  function remove(i: number) {
+    setWatches(watches.filter((_, idx) => idx !== i));
+  }
+
+  async function save() {
+    try {
+      await api.saveHookWatches(watches);
+      setMsg("저장됨. raphael watch 재시작 필요.");
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  if (!loaded) return <div className="muted">불러오는 중...</div>;
+
+  return (
+    <div>
+      <p className="muted">
+        파일 시스템 변경 시 자동으로 에이전트를 호출합니다. 별도{" "}
+        <code>raphael watch</code> 프로세스 실행 필요.
+      </p>
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="ok-msg">{msg}</div>}
+
+      {watches.map((w, i) => (
+        <div key={i} className="rule-card">
+          <div className="rule-head">
+            <span className="muted">#{i + 1}</span>
+            <code style={{ fontSize: 12 }}>{w.path}</code>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => remove(i)}>삭제</button>
+          </div>
+          <div className="rule-body">
+            <div className="rule-col">
+              <label>
+                경로
+                <input
+                  value={w.path}
+                  onChange={(e) => update(i, { path: e.target.value })}
+                />
+              </label>
+              <label>
+                패턴 (쉼표 구분)
+                <input
+                  value={w.patterns.join(", ")}
+                  onChange={(e) =>
+                    update(i, {
+                      patterns: e.target.value
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder="*.py, *.md"
+                />
+              </label>
+              <label>
+                이벤트 (쉼표 구분)
+                <input
+                  value={w.events.join(", ")}
+                  onChange={(e) =>
+                    update(i, {
+                      events: e.target.value
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder="modified, created, deleted"
+                />
+              </label>
+              <label>
+                Debounce (s)
+                <input
+                  type="number"
+                  value={w.debounce_seconds}
+                  onChange={(e) =>
+                    update(i, {
+                      debounce_seconds: parseInt(e.target.value) || 3,
+                    })
+                  }
+                />
+              </label>
+            </div>
+            <div className="rule-col">
+              <label>
+                에이전트
+                <input
+                  value={w.agent}
+                  onChange={(e) => update(i, { agent: e.target.value })}
+                />
+              </label>
+              <label>
+                프롬프트 ({"{path}"} {"{event}"} 사용 가능)
+                <textarea
+                  value={w.prompt}
+                  onChange={(e) => update(i, { prompt: e.target.value })}
+                  rows={4}
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      <div className="row">
+        <button onClick={add}>+ 훅 추가</button>
+        <button className="primary" onClick={save}>
           저장
         </button>
       </div>

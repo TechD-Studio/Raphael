@@ -31,6 +31,8 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [agentNames, setAgentNames] = useState<string[]>([]);
   const [targetAgent, setTargetAgent] = useState<string>("");
+  const [skillNames, setSkillNames] = useState<string[]>([]);
+  const [activeSkill, setActiveSkill] = useState<string>("");
   const [pendingImages, setPendingImages] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -56,6 +58,10 @@ export default function App() {
         try {
           const ags = await api.agents();
           setAgentNames(ags.filter((a) => a.active).map((a) => a.name));
+        } catch {}
+        try {
+          const sks = await api.skills();
+          setSkillNames(sks.map((s) => s.name));
         } catch {}
       }
     })();
@@ -142,6 +148,7 @@ export default function App() {
           },
         },
         imgs,
+        activeSkill || undefined,
       );
       setMessages((m) => [...m, { role: "assistant", content: buf || "(빈 응답)" }]);
     } catch (e) {
@@ -409,6 +416,27 @@ export default function App() {
             >
               <option value="">(자동)</option>
               {agentNames.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
+            스킬:
+            <select
+              value={activeSkill}
+              onChange={(e) => setActiveSkill(e.target.value)}
+              style={{
+                marginLeft: 4,
+                fontSize: 12,
+                padding: "2px 6px",
+                border: "1px solid #d4d7df",
+                borderRadius: 4,
+              }}
+            >
+              <option value="">(없음)</option>
+              {skillNames.map((n) => (
                 <option key={n} value={n}>
                   {n}
                 </option>

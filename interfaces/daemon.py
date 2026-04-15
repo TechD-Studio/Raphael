@@ -212,6 +212,7 @@ class MessageReq(BaseModel):
     content: str
     agent: str | None = None
     images: list[str] = []  # data URLs (data:image/png;base64,...) or absolute file paths
+    skill: str | None = None  # if set, prepend skill prompt as system addendum
 
 
 @app.post("/sessions/{sid}/messages")
@@ -245,6 +246,21 @@ async def post_message(sid: str, req: MessageReq):
         else:
             images_norm.append(img)
 
+    # Skill injection: prepend skill prompt to user content as guidance.
+    user_content = req.content
+    if req.skill:
+        try:
+            from core.skills import get_skill
+
+            sk = get_skill(req.skill)
+            if sk:
+                user_content = (
+                    f"[skill={sk.name}]\n{sk.prompt.strip()}\n\n---\n\n"
+                    f"{req.content}"
+                )
+        except Exception as e:
+            logger.warning(f"skill 적용 실패: {e}")
+
     async def runner():
         try:
             route_kwargs = dict(
@@ -256,7 +272,7 @@ async def post_message(sid: str, req: MessageReq):
             )
             if images_norm:
                 route_kwargs["images"] = images_norm
-            response = await orch.route(req.content, **route_kwargs)
+            response = await orch.route(user_content, **route_kwargs)
             await queue.put({"type": "final", "data": {"text": response}})
         except Exception as e:
             await queue.put({"type": "error", "data": {"message": str(e)}})
@@ -655,6 +671,178 @@ def save_routing(req: RoutingReq):
     router_inst = None
     orch_inst = None
     return {"ok": True, "strategy": req.strategy, "rules_count": len(req.rules)}
+
+
+@app.get("/hooks/watches")
+def get_hook_watches():
+    from config.settings import get_settings
+
+    s = get_settings()
+    return {"watches": (s.get("hooks") or {}).get("watches") or []}
+
+
+class HookWatchesReq(BaseModel):
+    watches: list[dict]
+
+
+@app.post("/hooks/watches")
+def save_hook_watches(req: HookWatchesReq):
+    from config.settings import save_local_settings
+
+    cleaned = []
+    for w in req.watches:
+        if not w.get("path"):
+            raise HTTPException(400, "each watch needs 'path'")
+        cleaned.append({
+            "path": w["path"],
+            "patterns": list(w.get("patterns") or []),
+            "events": list(w.get("events") or ["modified", "created"]),
+            "agent": w.get("agent", ""),
+            "prompt": w.get("prompt", ""),
+            "debounce_seconds": int(w.get("debounce_seconds", 3)),
+        })
+    save_local_settings({"hooks": {"watches": cleaned}})
+    return {"ok": True, "count": len(cleaned)}
+
+
+@app.get("/pool")
+async def pool_status():
+    from config.settings import get_settings
+
+    s = get_settings()
+    pool_cfg = (s.get("models") or {}).get("ollama_pool") or []
+    try:
+        from core.ollama_pool import OllamaPool
+
+        pool = OllamaPool()
+        health = await pool.health_all()
+    except Exception as e:
+        health = [{"error": str(e)}]
+    return {"configured": pool_cfg, "health": health}
+
+
+class PoolReq(BaseModel):
+    servers: list[dict]
+
+
+@app.post("/pool")
+def save_pool(req: PoolReq):
+    from config.settings import save_local_settings
+
+    cleaned = []
+    for srv in req.servers:
+        if not srv.get("name") or not srv.get("host"):
+            raise HTTPException(400, "name + host required for each server")
+        cleaned.append({
+            "name": srv["name"],
+            "host": srv["host"],
+            "port": int(srv.get("port", 11434)),
+            "weight": int(srv.get("weight", 1)),
+            "models": list(srv.get("models") or []),
+            "timeout": int(srv.get("timeout", 120)),
+        })
+    save_local_settings({"models": {"ollama_pool": cleaned}})
+    global router_inst, orch_inst
+    router_inst = None
+    orch_inst = None
+    return {"ok": True, "count": len(cleaned)}
+
+
+@app.get("/models/installed")
+async def list_installed_models():
+    """현재 설정된 ollama host에 실제 설치된 모델 목록 (Ollama /api/tags)."""
+    import httpx
+    from config.settings import get_ollama_base_url
+
+    base = get_ollama_base_url()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"{base}/api/tags")
+            r.raise_for_status()
+            data = r.json()
+        return {
+            "host": base,
+            "models": [m["name"] for m in data.get("models", [])],
+        }
+    except Exception as e:
+        return {"host": base, "models": [], "error": str(e)}
+
+
+class ModelPullReq(BaseModel):
+    name: str
+
+
+@app.post("/models/pull")
+async def pull_model(req: ModelPullReq):
+    """ollama pull <name> 트리거 (전체 다운로드 완료까지 블로킹)."""
+    import httpx
+    from config.settings import get_ollama_base_url
+
+    base = get_ollama_base_url()
+    if not req.name.strip():
+        raise HTTPException(400, "name required")
+    try:
+        async with httpx.AsyncClient(timeout=1800) as client:
+            r = await client.post(
+                f"{base}/api/pull",
+                json={"name": req.name.strip(), "stream": False},
+            )
+            r.raise_for_status()
+            return {"ok": True, "name": req.name, "result": r.json()}
+    except Exception as e:
+        raise HTTPException(500, f"pull failed: {e}")
+
+
+@app.get("/profile")
+def get_profile():
+    from core.profile import Profile
+
+    p = Profile.load()
+    return {
+        "facts": [
+            {"id": f.id, "text": f.text, "added": f.added, "source": f.source}
+            for f in p.facts
+        ]
+    }
+
+
+class ProfileAddReq(BaseModel):
+    text: str
+    source: str = "user"
+
+
+@app.post("/profile")
+def add_profile_fact(req: ProfileAddReq):
+    from core.profile import Profile
+
+    p = Profile.load()
+    try:
+        f = p.add(req.text, source=req.source)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"id": f.id, "text": f.text, "added": f.added, "source": f.source}
+
+
+@app.delete("/profile/{fact_id}")
+def delete_profile_fact(fact_id: str):
+    from core.profile import Profile
+
+    p = Profile.load()
+    before = len(p.facts)
+    p.facts = [f for f in p.facts if f.id != fact_id]
+    if len(p.facts) == before:
+        raise HTTPException(404, "fact not found")
+    p.save()
+    return {"deleted": True, "id": fact_id}
+
+
+@app.delete("/profile")
+def clear_profile():
+    from core.profile import Profile
+
+    p = Profile.load()
+    n = p.clear()
+    return {"deleted": n}
 
 
 @app.post("/screenshot")
