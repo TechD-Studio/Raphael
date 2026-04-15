@@ -1,0 +1,135 @@
+name: Release Desktop App
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            triple: aarch64-apple-darwin
+            rust_target: aarch64-apple-darwin
+          - os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            rust_target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller fastapi uvicorn
+
+      - name: Build sidecar (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p desktop/src-tauri/binaries
+          pyinstaller \
+            --onefile \
+            --name "raphaeld-${{ matrix.triple }}" \
+            --distpath desktop/src-tauri/binaries \
+            --add-data "$(pwd)/config/settings.yaml:config" \
+            --hidden-import=core --hidden-import=tools --hidden-import=interfaces \
+            --hidden-import=uvicorn.lifespan.on \
+            --hidden-import=uvicorn.lifespan.off \
+            --hidden-import=uvicorn.protocols.http.h11_impl \
+            --collect-submodules core --collect-submodules tools \
+            interfaces/daemon.py
+
+      - name: Build sidecar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path desktop/src-tauri/binaries
+          pyinstaller `
+            --onefile `
+            --name "raphaeld-${{ matrix.triple }}" `
+            --distpath desktop/src-tauri/binaries `
+            --add-data "${PWD}/config/settings.yaml;config" `
+            --hidden-import=core --hidden-import=tools --hidden-import=interfaces `
+            --hidden-import=uvicorn.lifespan.on `
+            --hidden-import=uvicorn.lifespan.off `
+            --hidden-import=uvicorn.protocols.http.h11_impl `
+            --collect-submodules core --collect-submodules tools `
+            interfaces/daemon.py
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Frontend deps
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: ./desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "Raphael ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.os == 'macos-14' && '--target aarch64-apple-darwin' || '' }}
+
+  publish-manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate latest.json for updater
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          NOTES="See https://github.com/${{ github.repository }}/releases/tag/${TAG}"
+          cat > latest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "notes": "${NOTES}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {}
+          }
+          EOF
+          # latest.json은 GitHub Pages 또는 Release asset로 배포.
+          # 여기서는 release asset 업로드만 수행 — 실제 서명 hash는 tauri-action이 생성한 .sig 사용.
+          gh release upload "${TAG}" latest.json --clobber || true

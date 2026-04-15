@@ -1,0 +1,137 @@
+use std::sync::Mutex;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::{Manager, RunEvent, State};
+use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
+
+struct DaemonState(Mutex<Option<CommandChild>>);
+
+#[tauri::command]
+fn daemon_url() -> String {
+    "http://127.0.0.1:8765".to_string()
+}
+
+fn spawn_daemon(app: &tauri::AppHandle) -> Result<CommandChild, String> {
+    let sidecar = app
+        .shell()
+        .sidecar("raphaeld")
+        .map_err(|e| format!("sidecar lookup: {e}"))?;
+    let (mut rx, child) = sidecar
+        .args(["--port", "8765"])
+        .spawn()
+        .map_err(|e| format!("sidecar spawn: {e}"))?;
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Stdout(line) => {
+                    eprintln!("[raphaeld] {}", String::from_utf8_lossy(&line))
+                }
+                CommandEvent::Stderr(line) => {
+                    eprintln!("[raphaeld] {}", String::from_utf8_lossy(&line))
+                }
+                CommandEvent::Error(e) => eprintln!("[raphaeld error] {e}"),
+                CommandEvent::Terminated(t) => {
+                    eprintln!("[raphaeld terminated] code={:?}", t.code);
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+    Ok(child)
+}
+
+fn toggle_main_window(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let visible = win.is_visible().unwrap_or(false);
+        let focused = win.is_focused().unwrap_or(false);
+        if visible && focused {
+            let _ = win.hide();
+        } else {
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let toggle_shortcut = Shortcut::new(
+        Some(Modifiers::SUPER | Modifiers::SHIFT),
+        Code::KeyR,
+    );
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_shortcuts([toggle_shortcut])
+                .unwrap()
+                .with_handler(move |app, sc, ev| {
+                    if sc == &toggle_shortcut && ev.state() == ShortcutState::Pressed {
+                        toggle_main_window(app);
+                    }
+                })
+                .build(),
+        )
+        .manage(DaemonState(Mutex::new(None)))
+        .setup(|app| {
+            // 1. Sidecar 시작
+            let handle = app.handle().clone();
+            match spawn_daemon(&handle) {
+                Ok(child) => {
+                    let state: State<DaemonState> = app.state();
+                    *state.0.lock().unwrap() = Some(child);
+                    eprintln!("[raphael] daemon started on :8765");
+                }
+                Err(e) => eprintln!("[raphael] daemon spawn failed: {e}"),
+            }
+
+            // 2. Tray Icon
+            let show_item = MenuItem::with_id(app, "show", "Raphael 열기", true, None::<&str>)?;
+            let hide_item = MenuItem::with_id(app, "hide", "숨기기", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &hide_item, &quit_item])?;
+            TrayIconBuilder::with_id("main-tray")
+                .menu(&menu)
+                .show_menu_on_left_click(true)
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("Raphael (Cmd+Shift+R)")
+                .on_menu_event(|app, ev| match ev.id.as_ref() {
+                    "show" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                    "hide" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.hide();
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
+
+            // 3. 글로벌 단축키 등록 (플러그인 with_shortcuts에서 이미 등록됨)
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![daemon_url])
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::ExitRequested { .. } = event {
+                let state: State<DaemonState> = app.state();
+                let child_opt = state.0.lock().unwrap().take();
+                if let Some(child) = child_opt {
+                    let _ = child.kill();
+                    eprintln!("[raphael] daemon killed");
+                }
+            }
+        });
+}

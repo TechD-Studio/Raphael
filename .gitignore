@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# Rust / Tauri
+desktop/src-tauri/target/
+desktop/src-tauri/gen/schemas/
+desktop/src-tauri/Cargo.lock
+
+# Tauri sidecar binary (built per platform in CI)
+desktop/src-tauri/binaries/*
+!desktop/src-tauri/binaries/.gitkeep
+
+# PyInstaller
+build/
+*.spec
+
+# Raphael runtime state (user-local)
+.raphael/
+.bkit/
+
+# Project local config
+config/settings.local.yaml
+data/chroma/
+logs/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.log
+
+# Secrets (never commit)
+.env
+.env.*
+*.key
+!*.key.pub

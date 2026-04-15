@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+
+  raphael:
+    build: .
+    depends_on:
+      - ollama
+    ports:
+      - "7860:7860"   # web UI
+      - "7861:7861"   # health API
+    environment:
+      RAPHAEL_PROJECT_ROOT: /app
+    volumes:
+      - raphael_data:/root/.raphael
+      - ./config/settings.local.yaml:/app/config/settings.local.yaml:ro
+    command: ["web"]
+
+  # 무료 메타 검색엔진 (선택)
+  # raphael의 settings에 searxng_url: http://searxng:8080 으로 지정
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - "8888:8080"
+    volumes:
+      - searxng_data:/etc/searxng
+    environment:
+      BASE_URL: http://localhost:8888/
+      INSTANCE_NAME: raphael-searxng
+
+volumes:
+  ollama_models:
+  raphael_data:
+  searxng_data:

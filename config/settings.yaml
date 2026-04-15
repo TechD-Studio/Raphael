@@ -1,0 +1,188 @@
+raphael:
+  name: "Raphael"
+  version: "0.1.0"
+
+models:
+  default: "gemma4-e4b"
+
+  # 에스컬레이션 사다리 — 빈 응답/빈 content 발생 시 자동 전환 순서.
+  # 프로젝트 목표: 제한된 하드웨어에서 gemma4의 한계 탐구. 기본은 gemma 내부만.
+  # claude로 자동 올라가길 원하면 "claude-haiku", "claude-sonnet" 추가.
+  escalation_ladder:
+    - "gemma4-e2b"
+    - "gemma4-e4b"
+    - "gemma4-26b"
+
+  ollama:
+    host: "100.x.x.x"
+    port: 11434
+    timeout: 120
+
+    available:
+      gemma4-e2b:
+        name: "gemma4:e2b"
+        vram: "~3GB"
+        description: "경량, 빠른 응답"
+        best_for: ["간단한 질문", "빠른 태스크"]
+
+      gemma4-e4b:
+        name: "gemma4:e4b"
+        vram: "~5GB"
+        description: "균형잡힌 성능 (권장)"
+        best_for: ["일반 대화", "코딩", "분석"]
+
+      gemma4-26b:
+        name: "gemma4:26b"
+        vram: "~16GB"
+        description: "고성능"
+        best_for: ["고난이도 태스크", "긴 문서 처리"]
+
+      # Claude Code 구독 (CLI 백엔드) — 사용자가 'claude' CLI 설치/로그인 필요
+      claude-sonnet:
+        provider: claude_cli
+        name: "claude (sonnet)"
+        vram: "구독형"
+        description: "Claude Code 구독 (Sonnet)"
+        cli_args: ["--model", "sonnet"]
+        allowed_tools: ["Read"]   # claude 자체 도구 권한 (안전 기본)
+        best_for: ["복잡한 추론", "긴 컨텍스트", "코드 리뷰"]
+
+      claude-opus:
+        provider: claude_cli
+        name: "claude (opus)"
+        vram: "구독형"
+        description: "Claude Code 구독 (Opus)"
+        cli_args: ["--model", "opus"]
+        allowed_tools: ["Read"]
+        best_for: ["최고 품질", "복잡한 분석"]
+
+      claude-haiku:
+        provider: claude_cli
+        name: "claude (haiku)"
+        vram: "구독형"
+        description: "Claude Code 구독 (Haiku - 빠름/저렴)"
+        cli_args: ["--model", "haiku"]
+        allowed_tools: ["Read"]
+        best_for: ["빠른 응답"]
+
+  claude:
+    enabled: false
+    mode: "subscription"
+
+  auto_routing:
+    enabled: false
+
+  # 라우팅 규칙 — strategy: auto 일 때 적용
+  # routing:
+  #   strategy: auto
+  #   rules:
+  #     - match: { token_estimate_lt: 80 }
+  #       prefer_model: gemma4-e2b
+  #     - match: { agent: coding, min_messages: 8 }
+  #       prefer_model: gemma4-26b
+  #     - match: { contains_any: ["여러", "단계별로", "전체", "사이트", "프로젝트"], token_estimate_gt: 200 }
+  #       prefer_model: gemma4-26b
+  #       prefer_agent: planner
+  #     - match: { default: true }
+  #       prefer_model: gemma4-e4b
+  routing:
+    strategy: manual
+    rules: []
+
+  # 다중 Ollama 서버 풀 (선택 — 비어있으면 단일 ollama 설정 사용)
+  # ollama_pool:
+  #   - name: local
+  #     host: localhost
+  #     port: 11434
+  #     models: ["gemma4:e4b"]
+  #   - name: server
+  #     host: 100.64.0.10
+  #     weight: 3
+  #     models: ["gemma4:26b", "gemma4:31b", "nomic-embed-text"]
+  ollama_pool: []
+
+memory:
+  obsidian_vault: "/path/to/vault"
+  chroma_db_path: "./data/chroma"
+  embedding_model: "nomic-embed-text"
+
+tools:
+  web_search:
+    # SearXNG 인스턴스 URL (있으면 우선 사용). 비어있으면 DuckDuckGo만.
+    # 로컬: docker compose up -d searxng → http://localhost:8888
+    # 공개 인스턴스: https://searx.be 등 (무료, 비추 안정성)
+    searxng_url: ""
+    # 백엔드 시도 순서. searxng_url 있으면 [searxng, ddg_html, ddgs] 자동 우선.
+    # backend_order: ["searxng", "ddg_html", "ddgs"]
+
+  file:
+    # 파일 도구(read_file/write_file/...)가 접근 가능한 경로 목록.
+    # 빈 리스트면 기본값: 사용자 홈(~) + /tmp + /var/folders + 현재 cwd
+    # onboard 또는 웹 UI 설정 탭에서 수정 가능.
+    allowed_paths: []
+    max_file_size_mb: 50
+    supported_formats: ["txt", "md", "pdf", "csv", "py", "js", "ts", "json", "yaml", "html", "css"]
+
+  executor:
+    sandbox: false
+    log_executions: true
+    log_path: "./logs/exec.log"
+    timeout_seconds: 60
+
+interfaces:
+  cli:
+    enabled: true
+    history_file: "./data/cli_history.json"
+
+  web_ui:
+    enabled: true
+    host: "0.0.0.0"
+    port: 7860
+    share: false
+    auth: false
+
+  telegram:
+    enabled: true
+    token: "${TELEGRAM_BOT_TOKEN}"
+    # 허용된 텔레그램 user_id 목록. 비어있으면 모두 거부.
+    # user_id 찾는 법: @userinfobot 에게 /start 보내면 알려줌
+    allowed_users: []
+
+  discord:
+    enabled: true
+    token: "${DISCORD_BOT_TOKEN}"
+    # 허용된 디스코드 user_id 목록. 비어있으면 모두 거부.
+    # user_id: Discord 설정 > 고급 > 개발자 모드 켠 뒤 프로필 우클릭 > ID 복사
+    allowed_users: []
+
+logging:
+  level: "INFO"
+  file: "./logs/raphael.log"
+
+# 파일 시스템 훅 — raphael watch 명령으로 활성화
+# 빈 리스트면 비활성. 예시:
+# hooks:
+#   watches:
+#     - path: "~/projects/myrepo"
+#       patterns: ["*.py", "*.md"]
+#       events: ["modified", "created"]
+#       agent: "coding"
+#       prompt: "파일 {path}가 {event}되었습니다. 코드 품질을 한 줄로 평가해주세요."
+#       debounce_seconds: 3
+hooks:
+  watches: []
+
+# MCP (Model Context Protocol) 외부 서버 — raphael mcp list 로 확인
+# 빈 리스트면 비활성. 예시:
+# mcp:
+#   servers:
+#     - name: "filesystem"
+#       command: "npx"
+#       args: ["-y", "@modelcontextprotocol/server-filesystem", "~/Documents"]
+#     - name: "github"
+#       command: "npx"
+#       args: ["-y", "@modelcontextprotocol/server-github"]
+#       env:
+#         GITHUB_PERSONAL_ACCESS_TOKEN: "${GH_TOKEN}"
+mcp:
+  servers: []

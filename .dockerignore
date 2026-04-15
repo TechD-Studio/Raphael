@@ -1,0 +1,11 @@
+.venv/
+.git/
+.bkit/
+__pycache__/
+*.pyc
+data/chroma/
+logs/
+.env
+config/settings.local.yaml
+tests/
+docs/
