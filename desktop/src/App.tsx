@@ -143,7 +143,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="sidebar-head">
           <span className="brand">Raphael</span>
-          <button onClick={startNewSession} title="새 세션">New</button>
+          <button onClick={startNewSession} title="새 세션">＋</button>
           <button
             title="A/B 대시보드"
             onClick={() => setView("dashboard")}
@@ -156,7 +156,7 @@ export default function App() {
             onClick={() => setView("settings")}
             style={{ marginLeft: 4 }}
           >
-            Settings
+            ⚙
           </button>
         </div>
         <div className="sessions">
