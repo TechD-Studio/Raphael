@@ -8,8 +8,6 @@ import {
   type ModelsInfo,
   type PoolServer,
   type ProfileFact,
-  type RoutingConfig,
-  type RoutingRule,
   type SkillDetail,
   type SkillInfo,
   type SkillUpsert,
@@ -753,67 +751,136 @@ function SkillEditor({
   );
 }
 
+// 상황별 슬롯 정의 (web UI와 동일)
+interface Slot {
+  id: string;
+  label: string;
+  hint: string;
+  match: Record<string, any>; // match 조건 (nested)
+  prefer_agent?: string;      // 선호 에이전트 (slot 고유 — 사용자 미선택)
+}
+
+const ROUTING_SLOTS: Slot[] = [
+  {
+    id: "short",
+    label: "짧은 입력 (60 토큰 미만)",
+    hint: "빠른 응답용 소형 모델",
+    match: { token_estimate_lt: 60 },
+  },
+  {
+    id: "review",
+    label: "리뷰/분석/디버깅 키워드 포함",
+    hint: "로직/품질 중요 — 강한 모델",
+    match: {
+      contains_any: ["리뷰", "검토", "분석", "디버그", "debug", "review", "analysis"],
+    },
+  },
+  {
+    id: "project",
+    label: "큰 작업 (만들/구현/프로젝트 키워드 + 긴 입력) + planner",
+    hint: "기획 + 위임 필요",
+    match: {
+      contains_any: ["만들", "구현", "프로젝트", "project", "build", "create"],
+      token_estimate_gt: 80,
+    },
+    prefer_agent: "planner",
+  },
+  {
+    id: "long_chat",
+    label: "긴 대화 (10턴 이상, coding 에이전트)",
+    hint: "맥락 유지 중요",
+    match: { agent: "coding", min_messages: 10 },
+  },
+  {
+    id: "default",
+    label: "기본값 (위 조건 모두 미해당)",
+    hint: "균형형 기본 모델",
+    match: { default: true },
+  },
+];
+
+const RECOMMENDED_SLOT_MODELS: Record<string, string> = {
+  short: "gemma4-e2b",
+  review: "claude-sonnet",
+  project: "claude-opus",
+  long_chat: "gemma4-26b",
+  default: "gemma4-e4b",
+};
+
+function matchEquals(a: Record<string, any>, b: Record<string, any>): boolean {
+  const ak = Object.keys(a).sort();
+  const bk = Object.keys(b).sort();
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) {
+    const av = a[k];
+    const bv = b[k];
+    if (Array.isArray(av) && Array.isArray(bv)) {
+      if (av.length !== bv.length) return false;
+      if (!av.every((x, i) => x === bv[i])) return false;
+    } else if (av !== bv) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function RoutingPanel() {
-  const [cfg, setCfg] = useState<RoutingConfig>({ strategy: "manual", rules: [] });
+  const [strategy, setStrategy] = useState<"auto" | "manual">("manual");
+  const [slotModels, setSlotModels] = useState<Record<string, string>>({});
   const [loaded, setLoaded] = useState(false);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
   const [models, setModels] = useState<string[]>([]);
-  const [agents, setAgents] = useState<string[]>([]);
+
+  async function reload() {
+    try {
+      const [c, m] = await Promise.all([api.routingSettings(), api.models()]);
+      setStrategy((c.strategy as any) || "manual");
+      setModels(m.available);
+      const byId: Record<string, string> = {};
+      for (const slot of ROUTING_SLOTS) {
+        const found = c.rules.find((r: any) =>
+          matchEquals((r.match || {}) as any, slot.match),
+        );
+        byId[slot.id] = (found?.prefer_model || "") as string;
+      }
+      setSlotModels(byId);
+      setErr("");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoaded(true);
+    }
+  }
 
   useEffect(() => {
-    (async () => {
-      try {
-        const [c, m, a] = await Promise.all([
-          api.routingSettings(),
-          api.models(),
-          api.agents(),
-        ]);
-        setCfg(c);
-        setModels(m.available);
-        setAgents(a.map((x) => x.name));
-      } catch (e: any) {
-        setErr(e.message);
-      } finally {
-        setLoaded(true);
-      }
-    })();
+    reload();
   }, []);
 
-  function updateRule(i: number, patch: Partial<RoutingRule>) {
-    const rules = [...cfg.rules];
-    rules[i] = { ...rules[i], ...patch };
-    setCfg({ ...cfg, rules });
-  }
-
-  function addRule() {
-    setCfg({
-      ...cfg,
-      rules: [...cfg.rules, { note: "새 규칙" }],
-    });
-  }
-
-  function removeRule(i: number) {
-    const rules = cfg.rules.filter((_, idx) => idx !== i);
-    setCfg({ ...cfg, rules });
-  }
-
-  function moveRule(i: number, dir: -1 | 1) {
-    const j = i + dir;
-    if (j < 0 || j >= cfg.rules.length) return;
-    const rules = [...cfg.rules];
-    [rules[i], rules[j]] = [rules[j], rules[i]];
-    setCfg({ ...cfg, rules });
+  function applyRecommended() {
+    setStrategy("auto");
+    setSlotModels({ ...RECOMMENDED_SLOT_MODELS });
+    setMsg("추천 매핑이 적용되었습니다. '저장'을 눌러 반영하세요.");
   }
 
   async function save() {
     setSaving(true);
     setErr("");
     setMsg("");
+    const rules: any[] = [];
+    for (const slot of ROUTING_SLOTS) {
+      const m = (slotModels[slot.id] || "").trim();
+      if (!m) continue;
+      const rule: any = { match: { ...slot.match }, prefer_model: m };
+      if (slot.prefer_agent) rule.prefer_agent = slot.prefer_agent;
+      rule.name = slot.id;
+      rules.push(rule);
+    }
     try {
-      await api.saveRoutingSettings(cfg);
-      setMsg("저장 완료. 다음 요청부터 적용됩니다.");
+      await api.saveRoutingSettings({ strategy, rules });
+      setMsg(`저장 완료 — 활성 규칙 ${rules.length}개`);
+      await reload();
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -826,8 +893,8 @@ function RoutingPanel() {
   return (
     <div>
       <p className="muted">
-        상황별로 다른 모델/에이전트를 자동 선택합니다. 규칙은 위에서 아래로
-        매칭되며 첫 매치가 적용됩니다.
+        각 상황에 어떤 모델을 쓸지 선택하세요. auto로 두면 매 호출마다
+        위→아래로 평가, manual이면 현재 선택된 모델만 사용합니다.
       </p>
       {err && <div className="err">{err}</div>}
       {msg && <div className="ok-msg">{msg}</div>}
@@ -837,180 +904,58 @@ function RoutingPanel() {
           <input
             type="radio"
             name="strategy"
-            checked={cfg.strategy === "auto"}
-            onChange={() => setCfg({ ...cfg, strategy: "auto" })}
+            checked={strategy === "manual"}
+            onChange={() => setStrategy("manual")}
           />
-          auto (규칙 기반 자동)
+          manual
         </label>
         <label className="inline">
           <input
             type="radio"
             name="strategy"
-            checked={cfg.strategy === "manual"}
-            onChange={() => setCfg({ ...cfg, strategy: "manual" })}
+            checked={strategy === "auto"}
+            onChange={() => setStrategy("auto")}
           />
-          manual (고정 모델)
+          auto
         </label>
       </div>
 
-      {cfg.rules.length === 0 && (
-        <div className="muted" style={{ marginBottom: 12 }}>
-          규칙이 없습니다.
-        </div>
-      )}
-
-      {cfg.rules.map((r, i) => (
-        <div key={i} className="rule-card">
-          <div className="rule-head">
-            <span className="muted">#{i + 1}</span>
-            <input
-              className="rule-note"
-              placeholder="설명 (선택)"
-              value={r.note || ""}
-              onChange={(e) => updateRule(i, { note: e.target.value })}
-            />
-            <div style={{ flex: 1 }} />
-            <button onClick={() => moveRule(i, -1)} disabled={i === 0}>
-              ↑
-            </button>
-            <button
-              onClick={() => moveRule(i, 1)}
-              disabled={i === cfg.rules.length - 1}
+      {ROUTING_SLOTS.map((slot) => (
+        <div key={slot.id} className="slot-card">
+          <div className="slot-head">
+            <div>
+              <div className="slot-label">{slot.label}</div>
+              <div className="slot-hint">{slot.hint}</div>
+            </div>
+            <select
+              value={slotModels[slot.id] || ""}
+              onChange={(e) =>
+                setSlotModels({
+                  ...slotModels,
+                  [slot.id]: e.target.value,
+                })
+              }
             >
-              ↓
-            </button>
-            <button onClick={() => removeRule(i)}>삭제</button>
-          </div>
-          <div className="rule-body">
-            <div className="rule-col">
-              <div className="rule-section-title">조건</div>
-              <label>
-                에이전트
-                <select
-                  value={r.agent || ""}
-                  onChange={(e) =>
-                    updateRule(i, { agent: e.target.value || undefined })
-                  }
-                >
-                  <option value="">(무관)</option>
-                  {agents.map((a) => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                최소 메시지 수
-                <input
-                  type="number"
-                  value={r.min_messages ?? ""}
-                  onChange={(e) =>
-                    updateRule(i, {
-                      min_messages: e.target.value
-                        ? parseInt(e.target.value)
-                        : undefined,
-                    })
-                  }
-                  placeholder="예: 5"
-                />
-              </label>
-              <label>
-                토큰 추정치 &gt; (gt)
-                <input
-                  type="number"
-                  value={r.token_estimate_gt ?? ""}
-                  onChange={(e) =>
-                    updateRule(i, {
-                      token_estimate_gt: e.target.value
-                        ? parseInt(e.target.value)
-                        : undefined,
-                    })
-                  }
-                  placeholder="예: 1000"
-                />
-              </label>
-              <label>
-                토큰 추정치 &lt; (lt)
-                <input
-                  type="number"
-                  value={r.token_estimate_lt ?? ""}
-                  onChange={(e) =>
-                    updateRule(i, {
-                      token_estimate_lt: e.target.value
-                        ? parseInt(e.target.value)
-                        : undefined,
-                    })
-                  }
-                />
-              </label>
-              <label>
-                포함 키워드 (쉼표 구분)
-                <input
-                  value={(r.contains_any || []).join(", ")}
-                  onChange={(e) =>
-                    updateRule(i, {
-                      contains_any: e.target.value
-                        .split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                  placeholder="예: 코드, 파일, 디버그"
-                />
-              </label>
-              <label className="inline">
-                <input
-                  type="checkbox"
-                  checked={!!r.default}
-                  onChange={(e) => updateRule(i, { default: e.target.checked })}
-                />
-                기본 규칙 (다른 규칙 매치 실패 시)
-              </label>
-            </div>
-            <div className="rule-col">
-              <div className="rule-section-title">결과</div>
-              <label>
-                선호 모델
-                <select
-                  value={r.prefer_model || ""}
-                  onChange={(e) =>
-                    updateRule(i, { prefer_model: e.target.value || undefined })
-                  }
-                >
-                  <option value="">(변경 없음)</option>
-                  {models.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                선호 에이전트
-                <select
-                  value={r.prefer_agent || ""}
-                  onChange={(e) =>
-                    updateRule(i, { prefer_agent: e.target.value || undefined })
-                  }
-                >
-                  <option value="">(변경 없음)</option>
-                  {agents.map((a) => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+              <option value="">(비활성)</option>
+              {models.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       ))}
 
-      <div className="row">
-        <button onClick={addRule}>+ 규칙 추가</button>
+      <div className="row" style={{ marginTop: 16 }}>
         <button className="primary" onClick={save} disabled={saving}>
           {saving ? "저장 중..." : "저장"}
+        </button>
+        <button onClick={reload} disabled={saving}>
+          다시 불러오기
+        </button>
+        <button onClick={applyRecommended} disabled={saving}>
+          추천 적용
         </button>
       </div>
     </div>
