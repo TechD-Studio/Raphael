@@ -7,7 +7,7 @@ import {
   type ModelsInfo,
 } from "./api";
 
-type Tab = "agents" | "models";
+type Tab = "agents" | "models" | "server";
 
 export default function Settings({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("agents");
@@ -32,10 +32,18 @@ export default function Settings({ onBack }: { onBack: () => void }) {
           >
             모델
           </button>
+          <button
+            className={tab === "server" ? "active" : ""}
+            onClick={() => setTab("server")}
+          >
+            서버
+          </button>
         </nav>
       </header>
       <main className="settings-body">
-        {tab === "agents" ? <AgentsPanel /> : <ModelsPanel />}
+        {tab === "agents" && <AgentsPanel />}
+        {tab === "models" && <ModelsPanel />}
+        {tab === "server" && <ServerPanel />}
       </main>
     </div>
   );
@@ -357,6 +365,97 @@ function ModelsPanel() {
       <p className="muted">
         모델 추가는 <code>~/.raphael/settings.yaml</code> 에서 관리합니다.
       </p>
+    </div>
+  );
+}
+
+function ServerPanel() {
+  const [form, setForm] = useState<{
+    host: string;
+    port: number;
+    timeout: number;
+  }>({ host: "", port: 11434, timeout: 120 });
+  const [loaded, setLoaded] = useState(false);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await api.serverSettings();
+        setForm(s);
+      } catch (e: any) {
+        setErr(e.message);
+      } finally {
+        setLoaded(true);
+      }
+    })();
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setErr("");
+    setMsg("");
+    try {
+      await api.saveServerSettings(form);
+      setMsg("저장 완료. 다음 요청부터 적용됩니다.");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!loaded) return <div className="muted">불러오는 중...</div>;
+
+  const baseUrl = `http://${form.host}:${form.port}`;
+
+  return (
+    <div className="agent-editor">
+      <h3>Ollama 서버</h3>
+      <p className="muted">
+        외부 Ollama 서버를 사용하려면 호스트/포트를 지정하세요. 로컬은
+        <code> localhost:11434</code>.
+      </p>
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="ok-msg">{msg}</div>}
+      <label>
+        호스트
+        <input
+          value={form.host}
+          onChange={(e) => setForm({ ...form, host: e.target.value })}
+          placeholder="예: localhost, 100.64.0.10, ollama.local"
+        />
+      </label>
+      <label>
+        포트
+        <input
+          type="number"
+          value={form.port}
+          onChange={(e) =>
+            setForm({ ...form, port: parseInt(e.target.value) || 11434 })
+          }
+        />
+      </label>
+      <label>
+        타임아웃 (초)
+        <input
+          type="number"
+          value={form.timeout}
+          onChange={(e) =>
+            setForm({ ...form, timeout: parseInt(e.target.value) || 120 })
+          }
+        />
+      </label>
+      <p className="muted">
+        저장 후 Base URL: <code>{baseUrl}</code>
+      </p>
+      <div className="row">
+        <button className="primary" onClick={save} disabled={saving}>
+          {saving ? "저장 중..." : "저장"}
+        </button>
+      </div>
     </div>
   );
 }

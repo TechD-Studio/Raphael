@@ -273,6 +273,46 @@ def list_models():
     }
 
 
+@app.get("/settings/server")
+def get_server_settings():
+    from config.settings import get_settings
+
+    s = get_settings()
+    o = (s.get("models") or {}).get("ollama") or {}
+    return {
+        "host": o.get("host", "localhost"),
+        "port": int(o.get("port", 11434)),
+        "timeout": int(o.get("timeout", 120)),
+    }
+
+
+class ServerSettingsReq(BaseModel):
+    host: str
+    port: int = 11434
+    timeout: int = 120
+
+
+@app.post("/settings/server")
+def set_server_settings(req: ServerSettingsReq):
+    from config.settings import save_local_settings
+
+    if not req.host.strip():
+        raise HTTPException(400, "host required")
+    save_local_settings({
+        "models": {
+            "ollama": {
+                "host": req.host.strip(),
+                "port": req.port,
+                "timeout": req.timeout,
+            }
+        }
+    })
+    global router_inst, orch_inst
+    router_inst = None
+    orch_inst = None  # force re-init with new base URL
+    return {"ok": True, "host": req.host, "port": req.port, "timeout": req.timeout}
+
+
 class ModelUseReq(BaseModel):
     key: str
 

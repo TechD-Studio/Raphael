@@ -90,6 +90,14 @@ export const api = {
   models: () => jget<ModelsInfo>("/models"),
   useModel: (key: string) => jpost<{ current: string }>("/models/use", { key }),
 
+  serverSettings: () =>
+    jget<{ host: string; port: number; timeout: number }>("/settings/server"),
+  saveServerSettings: (payload: { host: string; port: number; timeout: number }) =>
+    jpost<{ ok: boolean; host: string; port: number; timeout: number }>(
+      "/settings/server",
+      payload,
+    ),
+
   // SSE 메시지 전송 — onChunk(token), onFinal(text), onDone()
   async sendMessage(
     sid: string,
