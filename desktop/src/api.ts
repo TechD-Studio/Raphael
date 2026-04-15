@@ -78,6 +78,24 @@ export interface AbResultDetail {
   results: AbRunResult[];
 }
 
+export interface FailureSummary {
+  file: string;
+  agent: string;
+  model: string;
+  reason: string;
+  user_input: string;
+  mtime: number;
+  turns: number;
+}
+
+export interface FailureDetail {
+  agent: string;
+  model: string;
+  reason: string;
+  user_input: string;
+  conversation: { role: string; content: string }[];
+}
+
 async function jget<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
@@ -131,6 +149,23 @@ export const api = {
   abResults: () => jget<AbResultSummary[]>("/ab-results"),
   abResult: (name: string) =>
     jget<AbResultDetail>(`/ab-results/${encodeURIComponent(name)}`),
+
+  failures: () => jget<FailureSummary[]>("/failures"),
+  failure: (name: string) =>
+    jget<FailureDetail>(`/failures/${encodeURIComponent(name)}`),
+  deleteFailure: async (name: string) => {
+    const r = await fetch(
+      `${BASE}/failures/${encodeURIComponent(name)}`,
+      { method: "DELETE" },
+    );
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  },
+  clearFailures: async () => {
+    const r = await fetch(`${BASE}/failures`, { method: "DELETE" });
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  },
 
   serverSettings: () =>
     jget<{ host: string; port: number; timeout: number }>("/settings/server"),

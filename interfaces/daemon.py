@@ -324,6 +324,68 @@ def _ab_results_dir() -> Path:
     return Path.home() / ".raphael" / "ab_results"
 
 
+def _failures_dir() -> Path:
+    return Path.home() / ".raphael" / "failures"
+
+
+@app.get("/failures")
+def list_failures():
+    d = _failures_dir()
+    if not d.exists():
+        return []
+    out = []
+    for p in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            out.append({
+                "file": p.name,
+                "agent": data.get("agent", ""),
+                "model": data.get("model", ""),
+                "reason": data.get("reason", ""),
+                "user_input": (data.get("user_input") or "")[:200],
+                "mtime": p.stat().st_mtime,
+                "turns": len(data.get("conversation", [])),
+            })
+        except Exception as e:
+            logger.debug(f"failure 읽기 실패 {p.name}: {e}")
+    return out
+
+
+@app.get("/failures/{name}")
+def get_failure(name: str):
+    if "/" in name or ".." in name:
+        raise HTTPException(400, "invalid name")
+    p = _failures_dir() / name
+    if not p.exists():
+        raise HTTPException(404, "not found")
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(500, f"parse error: {e}")
+
+
+@app.delete("/failures/{name}")
+def delete_failure(name: str):
+    if "/" in name or ".." in name:
+        raise HTTPException(400, "invalid name")
+    p = _failures_dir() / name
+    if not p.exists():
+        raise HTTPException(404, "not found")
+    p.unlink()
+    return {"deleted": True, "name": name}
+
+
+@app.delete("/failures")
+def clear_failures():
+    d = _failures_dir()
+    count = 0
+    if d.exists():
+        for p in d.glob("*.json"):
+            p.unlink()
+            count += 1
+    return {"deleted": count}
+
+
 @app.get("/ab-results")
 def list_ab_results():
     d = _ab_results_dir()

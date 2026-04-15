@@ -1,12 +1,47 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   api,
   type AbResultDetail,
   type AbResultSummary,
   type AbRunResult,
+  type FailureDetail,
+  type FailureSummary,
 } from "./api";
 
+type Tab = "ab" | "failures";
+
 export default function Dashboard({ onBack }: { onBack: () => void }) {
+  const [tab, setTab] = useState<Tab>("ab");
+  return (
+    <div className="settings-root">
+      <header className="settings-header">
+        <button className="back-btn" onClick={onBack}>
+          ← 돌아가기
+        </button>
+        <h2>대시보드</h2>
+        <nav className="settings-tabs">
+          <button
+            className={tab === "ab" ? "active" : ""}
+            onClick={() => setTab("ab")}
+          >
+            A/B 결과
+          </button>
+          <button
+            className={tab === "failures" ? "active" : ""}
+            onClick={() => setTab("failures")}
+          >
+            실패 케이스
+          </button>
+        </nav>
+      </header>
+      <main className="settings-body">
+        {tab === "ab" ? <AbTab /> : <FailuresTab />}
+      </main>
+    </div>
+  );
+}
+
+function AbTab() {
   const [list, setList] = useState<AbResultSummary[]>([]);
   const [detail, setDetail] = useState<{
     name: string;
@@ -40,54 +75,256 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
     }
   }
 
-  // 모델별 누적 통계 (전체 결과에서 모델 이름 수집)
-  const [aggregate, aggregateModels] = useMemo(() => {
-    const byModel: Record<
-      string,
-      { runs: number; success: number; avgDuration: number; durSum: number; durN: number }
-    > = {};
-    list.forEach((s) => {
-      s.models.forEach((_m) => {
-        // summary에는 개별 model별 success/duration이 없어 간단 요약만
-      });
-    });
-    return [byModel, Object.keys(byModel)];
-  }, [list]);
-  void aggregate;
-  void aggregateModels;
+  return (
+    <>
+      <div className="panel-toolbar">
+        <button onClick={refresh}>새로고침</button>
+      </div>
+      {err && <div className="err">{err}</div>}
+      {loading && <div className="muted">불러오는 중...</div>}
+      {!loading && list.length === 0 && (
+        <div className="muted">
+          저장된 A/B 결과가 없습니다. 터미널에서{" "}
+          <code>raphael ab-test &lt;scenario&gt; --models gemma4-e2b,gemma4-e4b</code>{" "}
+          실행 후 새로고침하세요.
+        </div>
+      )}
+      {!loading && list.length > 0 && !detail && (
+        <RunList list={list} onOpen={open} />
+      )}
+      {detail && (
+        <RunDetail
+          name={detail.name}
+          data={detail.data}
+          onClose={() => setDetail(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function FailuresTab() {
+  const [list, setList] = useState<FailureSummary[]>([]);
+  const [detail, setDetail] = useState<{
+    name: string;
+    data: FailureDetail;
+  } | null>(null);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      setList(await api.failures());
+      setErr("");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function open(name: string) {
+    try {
+      setDetail({ name, data: await api.failure(name) });
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  async function remove(name: string) {
+    if (!confirm(`${name} 삭제?`)) return;
+    try {
+      await api.deleteFailure(name);
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  async function clearAll() {
+    if (!confirm("모든 실패 케이스를 삭제합니다. 계속?")) return;
+    try {
+      await api.clearFailures();
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  if (detail) {
+    return (
+      <FailureDetailView
+        name={detail.name}
+        data={detail.data}
+        onClose={() => setDetail(null)}
+      />
+    );
+  }
 
   return (
-    <div className="settings-root">
-      <header className="settings-header">
-        <button className="back-btn" onClick={onBack}>
-          ← 돌아가기
-        </button>
-        <h2>A/B 대시보드</h2>
-        <div className="settings-tabs">
-          <button onClick={refresh}>새로고침</button>
+    <>
+      <div className="panel-toolbar">
+        <button onClick={refresh}>새로고침</button>
+        {list.length > 0 && (
+          <button onClick={clearAll} style={{ marginLeft: 8 }}>
+            전체 삭제
+          </button>
+        )}
+      </div>
+      {err && <div className="err">{err}</div>}
+      {loading && <div className="muted">불러오는 중...</div>}
+      {!loading && list.length === 0 && (
+        <div className="muted">기록된 실패 케이스가 없습니다.</div>
+      )}
+      {!loading && list.length > 0 && (
+        <table className="agent-table">
+          <thead>
+            <tr>
+              <th>시간</th>
+              <th>에이전트</th>
+              <th>모델</th>
+              <th>원인</th>
+              <th>턴</th>
+              <th>입력 (발췌)</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((f) => (
+              <tr key={f.file}>
+                <td>{new Date(f.mtime * 1000).toLocaleString()}</td>
+                <td>
+                  <code>{f.agent}</code>
+                </td>
+                <td>{f.model}</td>
+                <td>
+                  <span
+                    className="badge"
+                    style={{ background: "#fee2e2", color: "#991b1b" }}
+                  >
+                    {f.reason}
+                  </span>
+                </td>
+                <td>{f.turns}</td>
+                <td
+                  style={{ maxWidth: 320, fontSize: 12, color: "#4b5563" }}
+                  title={f.user_input}
+                >
+                  {f.user_input}
+                </td>
+                <td className="actions">
+                  <button onClick={() => open(f.file)}>보기</button>
+                  <button onClick={() => remove(f.file)}>삭제</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function FailureDetailView({
+  name,
+  data,
+  onClose,
+}: {
+  name: string;
+  data: FailureDetail;
+  onClose: () => void;
+}) {
+  return (
+    <div>
+      <div className="row" style={{ marginBottom: 12 }}>
+        <button onClick={onClose}>← 목록으로</button>
+        <span className="muted" style={{ marginLeft: 12 }}>
+          {name}
+        </span>
+      </div>
+      <div
+        style={{
+          background: "#f9fafb",
+          border: "1px solid #e7e9ef",
+          borderRadius: 6,
+          padding: 12,
+          marginBottom: 12,
+          fontSize: 13,
+        }}
+      >
+        <div>
+          <b>agent:</b> <code>{data.agent}</code>
         </div>
-      </header>
-      <main className="settings-body">
-        {err && <div className="err">{err}</div>}
-        {loading && <div className="muted">불러오는 중...</div>}
-        {!loading && list.length === 0 && (
-          <div className="muted">
-            저장된 A/B 결과가 없습니다. 터미널에서{" "}
-            <code>raphael ab-test &lt;scenario&gt; --models gemma4-e2b,gemma4-e4b</code>{" "}
-            실행 후 새로고침하세요.
+        <div>
+          <b>model:</b> <code>{data.model}</code>
+        </div>
+        <div>
+          <b>reason:</b>{" "}
+          <span
+            className="badge"
+            style={{ background: "#fee2e2", color: "#991b1b" }}
+          >
+            {data.reason}
+          </span>
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <b>user_input:</b>
+          <pre
+            style={{
+              whiteSpace: "pre-wrap",
+              marginTop: 4,
+              background: "#fff",
+              padding: 8,
+              borderRadius: 4,
+              border: "1px solid #e7e9ef",
+              fontSize: 12,
+            }}
+          >
+            {data.user_input}
+          </pre>
+        </div>
+      </div>
+      <div className="muted" style={{ marginBottom: 8 }}>
+        대화 (총 {data.conversation.length}턴)
+      </div>
+      {data.conversation.map((m, i) => (
+        <div
+          key={i}
+          style={{
+            background: m.role === "user" ? "#eff6ff" : "#f9fafb",
+            border: "1px solid #e7e9ef",
+            borderRadius: 6,
+            padding: 10,
+            marginBottom: 8,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#4b5563",
+              marginBottom: 6,
+            }}
+          >
+            [{i}] {m.role}
           </div>
-        )}
-        {!loading && list.length > 0 && !detail && (
-          <RunList list={list} onOpen={open} />
-        )}
-        {detail && (
-          <RunDetail
-            name={detail.name}
-            data={detail.data}
-            onClose={() => setDetail(null)}
-          />
-        )}
-      </main>
+          <pre
+            style={{
+              whiteSpace: "pre-wrap",
+              margin: 0,
+              fontSize: 12,
+              fontFamily: "ui-monospace, monospace",
+            }}
+          >
+            {m.content}
+          </pre>
+        </div>
+      ))}
     </div>
   );
 }
