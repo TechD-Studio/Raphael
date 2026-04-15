@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Raphael",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "identifier": "ai.raphael.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -45,7 +45,7 @@
         "https://github.com/TechD-Studio/Raphael/releases/latest/download/latest.json"
       ],
       "dialog": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdEOUM0RjY1MjY0NjAxQjQKUldTMEFVWW1aVStjZlNsUXduNTYwYk9XVFdYbW9WcC9ZTEJUOWsybU1GRG4vbytQZ0wyc0VxNVEK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE2Mzc2ODk4RjJFMDAxNUEKUldSYUFlRHltR2czcHJKcGVsU09zVnI5NjlPNVZ2QnRvWlVSYy9GNHgxQmZ2T0hTVm5ObmdvbHQK"
     }
   }
 }
