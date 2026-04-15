@@ -64,7 +64,7 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
         </button>
         <h2>A/B 대시보드</h2>
         <div className="settings-tabs">
-          <button onClick={refresh}>🔄 새로고침</button>
+          <button onClick={refresh}>새로고침</button>
         </div>
       </header>
       <main className="settings-body">

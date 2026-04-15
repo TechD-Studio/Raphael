@@ -142,21 +142,21 @@ export default function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="sidebar-head">
-          <span className="brand">🪶 Raphael</span>
-          <button onClick={startNewSession}>＋</button>
+          <span className="brand">Raphael</span>
+          <button onClick={startNewSession} title="새 세션">New</button>
           <button
             title="A/B 대시보드"
             onClick={() => setView("dashboard")}
             style={{ marginLeft: 4 }}
           >
-            📊
+            A/B
           </button>
           <button
             title="설정"
             onClick={() => setView("settings")}
             style={{ marginLeft: 4 }}
           >
-            ⚙
+            Settings
           </button>
         </div>
         <div className="sessions">
@@ -207,7 +207,7 @@ export default function App() {
         <div className="messages" ref={scrollRef}>
           {messages.map((m, i) => (
             <div key={i} className={`msg msg-${m.role}`}>
-              <div className="role">{m.role === "user" ? "🧑 You" : "🪶 Raphael"}</div>
+              <div className="role">{m.role === "user" ? "You" : "Raphael"}</div>
               <div className="content">
                 <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
                   {m.content}
@@ -217,7 +217,7 @@ export default function App() {
           ))}
           {streaming && (
             <div className="msg msg-assistant streaming">
-              <div className="role">🪶 Raphael (생성 중...)</div>
+              <div className="role">Raphael (생성 중...)</div>
               {tools.length > 0 && <div className="tools">{tools.join("  ")}</div>}
               <div className="content">
                 <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
