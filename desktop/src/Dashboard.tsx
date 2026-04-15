@@ -4,12 +4,13 @@ import {
   type AbResultDetail,
   type AbResultSummary,
   type AbRunResult,
+  type AuditEntry,
   type Checkpoint,
   type FailureDetail,
   type FailureSummary,
 } from "./api";
 
-type Tab = "ab" | "failures" | "checkpoints";
+type Tab = "ab" | "failures" | "checkpoints" | "audit";
 
 export default function Dashboard({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("ab");
@@ -39,12 +40,19 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
           >
             체크포인트
           </button>
+          <button
+            className={tab === "audit" ? "active" : ""}
+            onClick={() => setTab("audit")}
+          >
+            Audit
+          </button>
         </nav>
       </header>
       <main className="settings-body">
         {tab === "ab" && <AbTab />}
         {tab === "failures" && <FailuresTab />}
         {tab === "checkpoints" && <CheckpointsTab />}
+        {tab === "audit" && <AuditTab />}
       </main>
     </div>
   );
@@ -355,6 +363,129 @@ function CheckpointsTab() {
                   >
                     복원
                   </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function AuditTab() {
+  const [list, setList] = useState<AuditEntry[]>([]);
+  const [tail, setTail] = useState(200);
+  const [err, setErr] = useState("");
+  const [verifyMsg, setVerifyMsg] = useState("");
+  const [verifyOk, setVerifyOk] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      setList(await api.audit(tail));
+      setErr("");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tail]);
+
+  async function doVerify() {
+    try {
+      const res = await api.auditVerify();
+      setVerifyOk(res.ok);
+      setVerifyMsg(`${res.count}줄 검증 — ${res.message}`);
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  return (
+    <>
+      <div className="panel-toolbar">
+        <button onClick={refresh}>새로고침</button>
+        <button onClick={doVerify} style={{ marginLeft: 8 }}>
+          체인 무결성 검증
+        </button>
+        <label className="muted" style={{ marginLeft: 12, fontSize: 12 }}>
+          최근 N줄:
+          <select
+            value={tail}
+            onChange={(e) => setTail(parseInt(e.target.value))}
+            style={{ marginLeft: 6 }}
+          >
+            <option value={50}>50</option>
+            <option value={200}>200</option>
+            <option value={500}>500</option>
+            <option value={1000}>1000</option>
+          </select>
+        </label>
+      </div>
+      {err && <div className="err">{err}</div>}
+      {verifyMsg && (
+        <div
+          className={verifyOk ? "ok-msg" : "err"}
+          style={{ marginBottom: 12 }}
+        >
+          {verifyOk ? "✓ " : "✗ "}
+          {verifyMsg}
+        </div>
+      )}
+      {loading && <div className="muted">불러오는 중...</div>}
+      {!loading && list.length === 0 && (
+        <div className="muted">Audit 로그가 비어있습니다.</div>
+      )}
+      {!loading && list.length > 0 && (
+        <table className="agent-table">
+          <thead>
+            <tr>
+              <th>시간</th>
+              <th>유형</th>
+              <th>에이전트</th>
+              <th>세션</th>
+              <th>데이터</th>
+              <th>hash</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((e, i) => (
+              <tr key={i}>
+                <td style={{ fontSize: 12 }}>{(e.ts || "").replace("T", " ")}</td>
+                <td>
+                  <code>{e.type}</code>
+                </td>
+                <td>
+                  {e.agent && <code>{e.agent}</code>}
+                </td>
+                <td style={{ fontSize: 12 }}>{e.session || ""}</td>
+                <td
+                  style={{
+                    fontSize: 11,
+                    maxWidth: 360,
+                    fontFamily: "ui-monospace, monospace",
+                    color: "#4b5563",
+                  }}
+                  title={JSON.stringify(e.data)}
+                >
+                  {JSON.stringify(e.data).slice(0, 160)}
+                </td>
+                <td
+                  style={{
+                    fontSize: 10,
+                    fontFamily: "ui-monospace, monospace",
+                    color: "#9ca3af",
+                  }}
+                  title={e.hash}
+                >
+                  {(e.hash || "").slice(0, 8)}
                 </td>
               </tr>
             ))}

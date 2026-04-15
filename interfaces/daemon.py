@@ -324,6 +324,21 @@ def _ab_results_dir() -> Path:
     return Path.home() / ".raphael" / "ab_results"
 
 
+@app.get("/audit")
+def audit_show(tail: int = 200):
+    from core import audit
+
+    return audit.show(tail)
+
+
+@app.get("/audit/verify")
+def audit_verify():
+    from core import audit
+
+    ok, count, msg = audit.verify()
+    return {"ok": ok, "count": count, "message": msg}
+
+
 @app.get("/checkpoints")
 def list_checkpoints_api(limit: int = 100):
     from core import checkpoint

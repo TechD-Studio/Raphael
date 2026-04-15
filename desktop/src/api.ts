@@ -78,6 +78,16 @@ export interface AbResultDetail {
   results: AbRunResult[];
 }
 
+export interface AuditEntry {
+  ts?: string;
+  type?: string;
+  agent?: string;
+  session?: string;
+  data?: Record<string, unknown>;
+  prev?: string;
+  hash?: string;
+}
+
 export interface Checkpoint {
   id: string;
   operation: string;
@@ -175,6 +185,10 @@ export const api = {
   abResults: () => jget<AbResultSummary[]>("/ab-results"),
   abResult: (name: string) =>
     jget<AbResultDetail>(`/ab-results/${encodeURIComponent(name)}`),
+
+  audit: (tail = 200) => jget<AuditEntry[]>(`/audit?tail=${tail}`),
+  auditVerify: () =>
+    jget<{ ok: boolean; count: number; message: string }>("/audit/verify"),
 
   checkpoints: (limit = 100) =>
     jget<Checkpoint[]>(`/checkpoints?limit=${limit}`),
