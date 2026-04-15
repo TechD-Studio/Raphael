@@ -65,27 +65,31 @@ raphael web                          # Gradio UI
 
 ## 데스크톱 앱 (Tauri + React) 진행 상태
 
-### 완료
-- `interfaces/daemon.py` — FastAPI 데몬 (`/healthz`, `/sessions`, `/agents`, `/models`, SSE 메시지)
-- `desktop/build_sidecar.sh` — PyInstaller로 단일 바이너리 (~74MB, aarch64 검증됨)
-- `desktop/src-tauri/` — Tauri 셸 (sidecar spawn/kill, tray, global shortcut Cmd+Shift+R, updater 플러그인)
+### 완료 (v0.1.1 publish)
+- `interfaces/daemon.py` — FastAPI 데몬 (lifespan handler), SSE 메시지, 구버전 list형 세션 파일 skip
+- `desktop/build_sidecar.sh` — PyInstaller 단일 바이너리 (macOS 74MB / Windows 68MB)
+- `desktop/src-tauri/` — Tauri 셸, sidecar spawn/kill, tray(아이콘 fallback), 플랫폼별 단축키, updater, **panic hook → crash.log**
 - `desktop/src/` — React UI (사이드바 세션, 모델 셀렉터, SSE 스트리밍, markdown + highlight.js)
-- `.github/workflows/release.yml` — macOS arm64 + Windows x64 빌드 매트릭스
-- `desktop/SIGNING.md` — 키 생성/배포 가이드
-- Tauri 서명 키페어 생성 완료 (`~/.tauri/raphael.key` / `.key.pub`)
-- `desktop/src-tauri/tauri.conf.json` — endpoints = `https://github.com/TechD-Studio/Raphael/...`, pubkey 등록 완료
+- `.github/workflows/release.yml` — macOS arm64 + Windows x64 빌드 매트릭스 + latest.json
+- GitHub repo `TechD-Studio/Raphael` (private), Secrets(`TAURI_SIGNING_PRIVATE_KEY`, `..._PASSWORD`) 등록
+- **v0.1.1 릴리스 publish**, DMG/EXE/MSI 양 플랫폼 실행 검증 완료
 
-### 다음 세션 이어가기
-1. **GitHub Secrets 등록** (사용자가 브라우저에서 직접):
-   - Settings → Secrets and variables → Actions
-   - `TAURI_SIGNING_PRIVATE_KEY` = `~/.tauri/raphael.key` 파일 내용
-   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = 키 생성 시 입력한 패스워드 (없으면 빈 값)
-2. **dev 실행 검증**: `cd desktop && pnpm tauri dev` (첫 실행 5~10분, Rust 크레이트 컴파일)
-3. **첫 릴리스**: `git tag v0.1.0 && git push origin v0.1.0` → Actions가 자동 빌드 → Release(draft) → 검토 후 publish
-4. **다음 기능**: 에이전트/모델 설정 GUI, A/B 대시보드, 아이콘 디자인
+### 글로벌 단축키
+- macOS: `Cmd+Shift+R` 창 토글
+- Windows/Linux: `Ctrl+Alt+R` 창 토글 (Win+Shift+R는 OS 예약어로 회피)
+
+### 다음 기능
+- 에이전트/모델 설정 GUI (React 페이지 + daemon endpoint)
+- A/B 대시보드 (`raphael ab-test` 결과 시각화)
+- 아이콘 디자인 (현재 Tauri 기본 아이콘 유지 중)
+- 코드 서명 (Apple Developer $99/년 + Windows EV — 추후)
 
 ### 알려진 이슈
-- `tauri.conf.json`의 pubkey 문자열이 Claude Code 컨텐츠 필터에 오탐. 이 파일을 Claude 컨텍스트에 로드하면 세션이 차단됨. **이 파일은 직접 읽지 말고 JSON 유효성만 bash/python으로 확인할 것.**
+- `tauri.conf.json`의 pubkey 문자열이 Claude Code 컨텐츠 필터에 오탐. **직접 Read 금지**, JSON 유효성은 `python3 -c "import json; json.load(open(...))"` 또는 sed로만 수정.
+- **Windows 배포**: 미서명이라 첫 실행 시 SmartScreen 경고. `Unblock-File` 또는 "추가 정보 → 실행" 필요.
+- **macOS 배포**: Sequoia+는 미서명 앱에 "손상됨" 다이얼로그 (그래도 열기 버튼 없음). 우회: `sudo xattr -dr com.apple.quarantine /Applications/Raphael.app`.
+- PyInstaller onefile sidecar는 Windows Defender가 드물게 오탐할 수 있음 (실측은 아직 없음).
+- v0.1.0은 Windows에서 무음 크래시 (tray icon unwrap + reserved shortcut) — v0.1.1에서 방어 코드로 해결, v0.1.0은 삭제됨.
 
 ## 파일 구조 요점
 - `core/agent_base.py` — ReAct 루프, 에스컬레이션, 실패 저장
