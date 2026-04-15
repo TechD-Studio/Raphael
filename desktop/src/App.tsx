@@ -12,6 +12,7 @@ import {
 } from "./api";
 import Settings from "./Settings";
 import Dashboard from "./Dashboard";
+import { confirmDialog } from "./confirm";
 import "highlight.js/styles/github-dark.css";
 import "./App.css";
 
@@ -29,7 +30,6 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchHits, setSearchHits] = useState<SessionHit[]>([]);
   const [tagFilter, setTagFilter] = useState<string>("");
-  const [pendingDelSid, setPendingDelSid] = useState<string>("");
   const [searching, setSearching] = useState(false);
   const [agentNames, setAgentNames] = useState<string[]>([]);
   const [targetAgent, setTargetAgent] = useState<string>("");
@@ -183,14 +183,11 @@ export default function App() {
   }
 
   async function deleteSession(sid: string) {
-    if (pendingDelSid !== sid) {
-      setPendingDelSid(sid);
-      setTimeout(() => {
-        setPendingDelSid((cur) => (cur === sid ? "" : cur));
-      }, 3000);
-      return;
-    }
-    setPendingDelSid("");
+    const ok = await confirmDialog(`세션 ${sid.slice(0, 8)}... 삭제할까요?`, {
+      danger: true,
+      okLabel: "삭제",
+    });
+    if (!ok) return;
     try {
       await api.deleteSession(sid);
       if (sid === activeSid) startNewSession();
@@ -363,7 +360,11 @@ export default function App() {
   }
 
   async function reindexSessions() {
-    if (!confirm("모든 세션을 재인덱싱합니다 (임베딩 호출, 시간 소요). 계속?"))
+    if (
+      !(await confirmDialog(
+        "모든 세션을 재인덱싱합니다 (임베딩 호출, 시간 소요). 계속?",
+      ))
+    )
       return;
     try {
       const r = await api.reindexSessions();
@@ -730,18 +731,14 @@ export default function App() {
                 <span>{s.agent}</span>
                 <span>{s.turns}턴</span>
                 <button
-                  className={`del ${pendingDelSid === s.id ? "pending" : ""}`}
+                  className="del"
                   onClick={(e) => {
                     e.stopPropagation();
                     deleteSession(s.id);
                   }}
-                  title={
-                    pendingDelSid === s.id
-                      ? "한 번 더 눌러 삭제"
-                      : "삭제"
-                  }
+                  title="삭제"
                 >
-                  {pendingDelSid === s.id ? "정말?" : "✕"}
+                  ✕
                 </button>
               </div>
             </div>

@@ -7,6 +7,7 @@ import {
   type FailureDetail,
   type FailureSummary,
 } from "./api";
+import { confirmDialog } from "./confirm";
 
 type Tab =
   | "failures"
@@ -111,7 +112,7 @@ function FailuresTab() {
   }
 
   async function remove(name: string) {
-    if (!confirm(`${name} 삭제?`)) return;
+    if (!(await confirmDialog(`${name} 삭제?`, { danger: true, okLabel: "삭제" }))) return;
     try {
       await api.deleteFailure(name);
       await refresh();
@@ -121,7 +122,13 @@ function FailuresTab() {
   }
 
   async function clearAll() {
-    if (!confirm("모든 실패 케이스를 삭제합니다. 계속?")) return;
+    if (
+      !(await confirmDialog("모든 실패 케이스를 삭제합니다. 계속?", {
+        danger: true,
+        okLabel: "모두 삭제",
+      }))
+    )
+      return;
     try {
       await api.clearFailures();
       await refresh();
@@ -228,7 +235,13 @@ function CheckpointsTab() {
   }, []);
 
   async function restore(id: string) {
-    if (!confirm(`${id} 복원? 현재 파일은 덮어쓰여집니다.`)) return;
+    if (
+      !(await confirmDialog(`${id} 복원? 현재 파일은 덮어쓰여집니다.`, {
+        danger: true,
+        okLabel: "복원",
+      }))
+    )
+      return;
     try {
       const res = await api.restoreCheckpoint(id);
       setMsg(res.message);

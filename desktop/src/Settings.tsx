@@ -12,6 +12,7 @@ import {
   type SkillInfo,
   type SkillUpsert,
 } from "./api";
+import { confirmDialog } from "./confirm";
 
 type Tab =
   | "agents"
@@ -165,7 +166,7 @@ function AgentsPanel() {
   }
 
   async function remove(name: string) {
-    if (!confirm(`"${name}" 에이전트를 삭제하시겠습니까?`)) return;
+    if (!(await confirmDialog(`"${name}" 에이전트를 삭제하시겠습니까?`, { danger: true, okLabel: "삭제" }))) return;
     try {
       await api.deleteAgent(name);
       await refresh();
@@ -558,7 +559,7 @@ function SkillsPanel() {
   }, []);
 
   async function remove(name: string) {
-    if (!confirm(`${name} 삭제?`)) return;
+    if (!(await confirmDialog(`${name} 삭제?`, { danger: true, okLabel: "삭제" }))) return;
     try {
       await api.deleteSkill(name);
       await refresh();
@@ -1031,7 +1032,7 @@ function RagPanel() {
   }
 
   async function reindex() {
-    if (!confirm("전체 재인덱싱 (시간 소요). 계속?")) return;
+    if (!(await confirmDialog("전체 재인덱싱 (시간 소요). 계속?"))) return;
     setBusy(true);
     setErr("");
     setMsg("");
@@ -1170,7 +1171,7 @@ function SecurityPanel() {
   }
 
   async function delSecret(k: string) {
-    if (!confirm(`${k} 삭제?`)) return;
+    if (!(await confirmDialog(`시크릿 ${k} 삭제?`, { danger: true, okLabel: "삭제" }))) return;
     try {
       await api.deleteSecret(k);
       await refresh();
@@ -1339,7 +1340,7 @@ function ProfilePanel() {
   }
 
   async function del(id: string) {
-    if (!confirm("삭제?")) return;
+    if (!(await confirmDialog("이 fact를 삭제하시겠습니까?", { danger: true, okLabel: "삭제" }))) return;
     try {
       await api.deleteFact(id);
       await refresh();
@@ -1349,7 +1350,7 @@ function ProfilePanel() {
   }
 
   async function clearAll() {
-    if (!confirm("모든 fact 삭제?")) return;
+    if (!(await confirmDialog("모든 fact를 삭제합니다. 계속?", { danger: true, okLabel: "모두 삭제" }))) return;
     try {
       await api.clearProfile();
       await refresh();
@@ -1839,7 +1840,7 @@ function UpdatePanel() {
   const [msg, setMsg] = useState("");
 
   async function runUpdate() {
-    if (!confirm("git pull + pip install -e . 를 실행합니다. 계속?")) return;
+    if (!(await confirmDialog("git pull + pip install -e . 를 실행합니다. 계속?", { okLabel: "실행" }))) return;
     setUpdating(true);
     setMsg("");
     try {
