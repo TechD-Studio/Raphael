@@ -285,7 +285,21 @@ export const api = {
   },
 
   mcpServers: () =>
-    jget<{ configured: any[]; runtime_tools: string[] }>("/mcp/servers"),
+    jget<{
+      configured: any[];
+      runtime_tools: { server: string; tool: string; description: string }[];
+    }>("/mcp/servers"),
+  mcpCall: (server: string, tool: string, args: Record<string, unknown>) =>
+    jpost<{ ok: boolean; result: string }>("/mcp/call", { server, tool, args }),
+
+  bots: () =>
+    jget<{ name: string; running: boolean; pid: number | null; exit_code: number | null }[]>(
+      "/bots",
+    ),
+  startBot: (name: string) =>
+    jpost<{ ok: boolean; name: string; pid: number }>("/bots/start", { name }),
+  stopBot: (name: string) =>
+    jpost<{ ok: boolean; name: string }>("/bots/stop", { name }),
   plugins: () =>
     jget<{
       tools: { name: string; value: string }[];
@@ -423,6 +437,19 @@ export const api = {
     jget<{ watches: HookWatch[] }>("/hooks/watches"),
   saveHookWatches: (watches: HookWatch[]) =>
     jpost<{ ok: boolean; count: number }>("/hooks/watches", { watches }),
+
+  convertFile: (payload: {
+    operation: "md_to_html" | "md_to_pdf" | "csv_to_chart" | "image_resize";
+    src: string;
+    dst?: string;
+    x?: string;
+    y?: string;
+    width?: number;
+  }) =>
+    jpost<{ ok: boolean; operation: string; output: string }>(
+      "/convert",
+      payload,
+    ),
 
   takeScreenshot: () =>
     jpost<{ data_url: string; size: number }>("/screenshot", {}),

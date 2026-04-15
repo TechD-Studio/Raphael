@@ -17,7 +17,8 @@ type Tab =
   | "checkpoints"
   | "audit"
   | "activity"
-  | "system";
+  | "system"
+  | "tools";
 
 export default function Dashboard({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("ab");
@@ -65,6 +66,12 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
           >
             시스템
           </button>
+          <button
+            className={tab === "tools" ? "active" : ""}
+            onClick={() => setTab("tools")}
+          >
+            도구
+          </button>
         </nav>
       </header>
       <main className="settings-body">
@@ -74,6 +81,7 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
         {tab === "audit" && <AuditTab />}
         {tab === "activity" && <ActivityTab />}
         {tab === "system" && <SystemTab />}
+        {tab === "tools" && <ToolsTab />}
       </main>
     </div>
   );
@@ -666,25 +674,57 @@ function SystemTab() {
   const [feedback, setFeedback] = useState<any>(null);
   const [mcp, setMcp] = useState<any>(null);
   const [plugins, setPlugins] = useState<any>(null);
+  const [bots, setBots] = useState<any[]>([]);
   const [err, setErr] = useState("");
   const [updating, setUpdating] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string>("");
 
+  // MCP call form
+  const [mcpSel, setMcpSel] = useState<{ server: string; tool: string } | null>(
+    null,
+  );
+  const [mcpArgs, setMcpArgs] = useState("{}");
+  const [mcpResult, setMcpResult] = useState("");
+
   async function refresh() {
     try {
-      const [h, f, m, p] = await Promise.all([
+      const [h, f, m, p, b] = await Promise.all([
         api.healthPanel(),
         api.feedbackStats(),
         api.mcpServers(),
         api.plugins(),
+        api.bots(),
       ]);
       setHealth(h);
       setFeedback(f);
       setMcp(m);
       setPlugins(p);
+      setBots(b);
       setErr("");
     } catch (e: any) {
       setErr(e.message);
+    }
+  }
+
+  async function callMcp() {
+    if (!mcpSel) return;
+    setMcpResult("실행 중...");
+    try {
+      const args = JSON.parse(mcpArgs || "{}");
+      const r = await api.mcpCall(mcpSel.server, mcpSel.tool, args);
+      setMcpResult(r.result);
+    } catch (e: any) {
+      setMcpResult(`오류: ${e?.message || e}`);
+    }
+  }
+
+  async function botAction(name: string, action: "start" | "stop") {
+    try {
+      if (action === "start") await api.startBot(name);
+      else await api.stopBot(name);
+      await refresh();
+    } catch (e: any) {
+      alert(`${action} 실패: ${e.message}`);
     }
   }
 
@@ -776,34 +816,170 @@ function SystemTab() {
       <h3>MCP 서버</h3>
       {mcp && (
         <div style={{ fontSize: 13 }}>
-          <div>
+          <div style={{ marginBottom: 8 }}>
             <b>설정된 서버:</b>{" "}
             {mcp.configured.length === 0 ? (
-              <span className="muted">없음</span>
+              <span className="muted">없음 — settings.yaml의 mcp.servers 참고</span>
             ) : (
-              <ul>
-                {mcp.configured.map((s: any, i: number) => (
-                  <li key={i}>
-                    <code>{s.name || JSON.stringify(s)}</code>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div>
-            <b>런타임 MCP 도구:</b>{" "}
-            {mcp.runtime_tools.length === 0 ? (
-              <span className="muted">없음</span>
-            ) : (
-              mcp.runtime_tools.map((t: string) => (
-                <code key={t} style={{ marginRight: 6 }}>
-                  {t}
+              mcp.configured.map((s: any, i: number) => (
+                <code key={i} style={{ marginRight: 6 }}>
+                  {s.name || JSON.stringify(s)}
                 </code>
               ))
             )}
           </div>
+          <div>
+            <b>런타임 도구:</b>{" "}
+            {(!mcp.runtime_tools || mcp.runtime_tools.length === 0) && (
+              <span className="muted">없음</span>
+            )}
+          </div>
+          {mcp.runtime_tools && mcp.runtime_tools.length > 0 && (
+            <>
+              <table className="agent-table" style={{ marginTop: 8 }}>
+                <thead>
+                  <tr>
+                    <th>서버</th>
+                    <th>도구</th>
+                    <th>설명</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mcp.runtime_tools.map(
+                    (
+                      t: { server: string; tool: string; description: string },
+                      i: number,
+                    ) => (
+                      <tr key={i}>
+                        <td>
+                          <code>{t.server}</code>
+                        </td>
+                        <td>
+                          <code>{t.tool}</code>
+                        </td>
+                        <td style={{ fontSize: 12 }}>{t.description}</td>
+                        <td>
+                          <button
+                            onClick={() => {
+                              setMcpSel({ server: t.server, tool: t.tool });
+                              setMcpArgs("{}");
+                              setMcpResult("");
+                            }}
+                          >
+                            호출
+                          </button>
+                        </td>
+                      </tr>
+                    ),
+                  )}
+                </tbody>
+              </table>
+              {mcpSel && (
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: 10,
+                    border: "1px solid #e7e9ef",
+                    borderRadius: 6,
+                    background: "#fafafa",
+                  }}
+                >
+                  <div style={{ fontSize: 13, marginBottom: 6 }}>
+                    <b>
+                      <code>
+                        {mcpSel.server} / {mcpSel.tool}
+                      </code>
+                    </b>{" "}
+                    호출
+                  </div>
+                  <textarea
+                    value={mcpArgs}
+                    onChange={(e) => setMcpArgs(e.target.value)}
+                    rows={5}
+                    style={{
+                      width: "100%",
+                      border: "1px solid #d4d7df",
+                      borderRadius: 4,
+                      padding: 6,
+                      fontFamily: "ui-monospace, monospace",
+                      fontSize: 12,
+                    }}
+                  />
+                  <div className="row" style={{ marginTop: 6 }}>
+                    <button className="primary" onClick={callMcp}>
+                      실행
+                    </button>
+                    <button onClick={() => setMcpSel(null)}>닫기</button>
+                  </div>
+                  {mcpResult && (
+                    <pre
+                      style={{
+                        marginTop: 8,
+                        background: "#fff",
+                        padding: 8,
+                        border: "1px solid #e7e9ef",
+                        borderRadius: 4,
+                        fontSize: 12,
+                        maxHeight: 240,
+                        overflow: "auto",
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {mcpResult}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
+
+      <h3>봇 프로세스</h3>
+      <p className="muted">
+        토큰은 설정 &gt; 보안 의 Keychain 시크릿으로 저장됩니다
+        (TELEGRAM_BOT_TOKEN, SLACK_APP_TOKEN, DISCORD_BOT_TOKEN 등).
+      </p>
+      <table className="agent-table">
+        <thead>
+          <tr>
+            <th>봇</th>
+            <th>상태</th>
+            <th>PID</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {bots.map((b) => (
+            <tr key={b.name}>
+              <td>
+                <code>{b.name}</code>
+              </td>
+              <td>
+                {b.running ? (
+                  <span
+                    className="badge"
+                    style={{ background: "#dcfce7", color: "#166534" }}
+                  >
+                    실행 중
+                  </span>
+                ) : (
+                  <span className="muted">중지</span>
+                )}
+              </td>
+              <td>{b.pid || "-"}</td>
+              <td>
+                {b.running ? (
+                  <button onClick={() => botAction(b.name, "stop")}>중지</button>
+                ) : (
+                  <button onClick={() => botAction(b.name, "start")}>시작</button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
       <h3>플러그인</h3>
       {plugins && (
@@ -860,6 +1036,98 @@ function SystemTab() {
         </pre>
       )}
     </>
+  );
+}
+
+function ToolsTab() {
+  const [op, setOp] = useState<
+    "md_to_html" | "md_to_pdf" | "csv_to_chart" | "image_resize"
+  >("md_to_html");
+  const [src, setSrc] = useState("");
+  const [dst, setDst] = useState("");
+  const [x, setX] = useState("");
+  const [y, setY] = useState("");
+  const [width, setWidth] = useState(1024);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState("");
+  const [err, setErr] = useState("");
+
+  async function run() {
+    if (!src.trim()) {
+      setErr("src 경로 필수");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    setResult("");
+    try {
+      const r = await api.convertFile({ operation: op, src, dst, x, y, width });
+      setResult(`✓ ${r.output}`);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="agent-editor">
+      <h3 style={{ marginTop: 0 }}>파일 변환</h3>
+      <p className="muted">
+        로컬 파일 경로를 입력해 변환합니다. allowed_paths 샌드박스가 적용됩니다.
+      </p>
+      {err && <div className="err">{err}</div>}
+      {result && <div className="ok-msg">{result}</div>}
+      <label>
+        작업
+        <select value={op} onChange={(e) => setOp(e.target.value as any)}>
+          <option value="md_to_html">Markdown → HTML</option>
+          <option value="md_to_pdf">Markdown → PDF</option>
+          <option value="csv_to_chart">CSV → Chart (PNG)</option>
+          <option value="image_resize">이미지 크기 조정</option>
+        </select>
+      </label>
+      <label>
+        원본 (src)
+        <input
+          value={src}
+          onChange={(e) => setSrc(e.target.value)}
+          placeholder="예: /Users/dh/doc.md"
+        />
+      </label>
+      <label>
+        출력 (dst){" "}
+        <span className="muted">(비워두면 자동 — 원본 옆에 생성)</span>
+        <input value={dst} onChange={(e) => setDst(e.target.value)} />
+      </label>
+      {op === "csv_to_chart" && (
+        <>
+          <label>
+            x 컬럼
+            <input value={x} onChange={(e) => setX(e.target.value)} />
+          </label>
+          <label>
+            y 컬럼
+            <input value={y} onChange={(e) => setY(e.target.value)} />
+          </label>
+        </>
+      )}
+      {op === "image_resize" && (
+        <label>
+          가로 폭 (px)
+          <input
+            type="number"
+            value={width}
+            onChange={(e) => setWidth(parseInt(e.target.value) || 1024)}
+          />
+        </label>
+      )}
+      <div className="row">
+        <button className="primary" onClick={run} disabled={busy}>
+          {busy ? "변환 중..." : "변환"}
+        </button>
+      </div>
+    </div>
   );
 }
 

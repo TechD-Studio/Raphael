@@ -301,6 +301,67 @@ export default function App() {
     }
   }
 
+  async function pasteFromClipboard() {
+    try {
+      if (navigator.clipboard && "read" in navigator.clipboard) {
+        const items = await (navigator.clipboard as any).read();
+        let attached = 0;
+        let text = "";
+        for (const item of items) {
+          for (const type of item.types) {
+            if (type.startsWith("image/")) {
+              const blob = await item.getType(type);
+              const reader = new FileReader();
+              reader.onload = () => {
+                if (typeof reader.result === "string") {
+                  setPendingImages((arr) => [...arr, reader.result as string]);
+                }
+              };
+              reader.readAsDataURL(blob);
+              attached++;
+            } else if (type === "text/plain") {
+              const blob = await item.getType(type);
+              text = await blob.text();
+            }
+          }
+        }
+        if (!attached && text) {
+          setInput((cur) => (cur ? cur + "\n" + text : text));
+        } else if (!attached && !text) {
+          alert("클립보드가 비어있습니다.");
+        }
+      } else {
+        // Fallback: text only
+        const t = await (navigator.clipboard as any).readText();
+        if (t) setInput((cur) => (cur ? cur + "\n" + t : t));
+      }
+    } catch (e: any) {
+      alert(`클립보드 접근 실패: ${e?.message || e}`);
+    }
+  }
+
+  function handleComposerPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    let attached = 0;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === "string") {
+              setPendingImages((arr) => [...arr, reader.result as string]);
+            }
+          };
+          reader.readAsDataURL(file);
+          attached++;
+        }
+      }
+    }
+    if (attached > 0) e.preventDefault();
+  }
+
   async function captureScreen() {
     try {
       const r = await api.takeScreenshot();
@@ -704,11 +765,20 @@ export default function App() {
             >
               🖥
             </button>
+            <button
+              className="tool-btn"
+              onClick={pasteFromClipboard}
+              title="클립보드에서 붙여넣기 (이미지/텍스트)"
+              disabled={streaming}
+            >
+              📋
+            </button>
           </div>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={healthy ? "메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)" : "데몬 대기 중..."}
+            onPaste={handleComposerPaste}
+            placeholder={healthy ? "메시지 입력 (Enter 전송, Shift+Enter 줄바꿈, Cmd+V 이미지/텍스트)" : "데몬 대기 중..."}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();

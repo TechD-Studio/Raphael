@@ -900,6 +900,41 @@ def clear_profile():
     return {"deleted": n}
 
 
+class ConvertReq(BaseModel):
+    operation: str  # md_to_html | md_to_pdf | csv_to_chart | image_resize
+    src: str
+    dst: str = ""
+    x: str = ""
+    y: str = ""
+    width: int = 1024
+
+
+@app.post("/convert")
+def convert_file(req: ConvertReq):
+    """파일 변환 도구 직접 호출."""
+    try:
+        from tools.converter_tool import ConverterTool
+    except Exception as e:
+        raise HTTPException(500, f"converter 사용 불가: {e}")
+    tool = ConverterTool()
+    try:
+        if req.operation == "md_to_html":
+            out = tool.md_to_html(req.src, req.dst)
+        elif req.operation == "md_to_pdf":
+            out = tool.md_to_pdf(req.src, req.dst)
+        elif req.operation == "csv_to_chart":
+            out = tool.csv_to_chart(req.src, req.dst, req.x, req.y)
+        elif req.operation == "image_resize":
+            out = tool.image_resize(req.src, req.width, req.dst)
+        else:
+            raise HTTPException(400, f"unknown operation: {req.operation}")
+        return {"ok": True, "operation": req.operation, "output": str(out)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"변환 실패: {e}")
+
+
 @app.post("/screenshot")
 def take_screenshot():
     """OS 스크린샷을 캡처해 base64 PNG로 반환."""
@@ -959,19 +994,142 @@ def list_mcp_servers():
 
     s = get_settings()
     servers = (s.get("mcp") or {}).get("servers") or []
-    # Try to get runtime-registered tools
-    runtime_tools: list[str] = []
+    # Try to get runtime-registered tools (registry keys: "mcp:<server>:<tool>")
+    runtime_tools: list[dict] = []
     try:
         orch = _init_runtime()
-        for tool_name in orch._registry.tools.keys():
-            if tool_name.startswith("mcp_"):
-                runtime_tools.append(tool_name)
+        # registry is shared across agents
+        reg = None
+        for a in orch._agents.values():
+            if getattr(a, "tool_registry", None) is not None:
+                reg = a.tool_registry
+                break
+        if reg is not None:
+            for entry in reg.list_tools():
+                key = entry["name"]
+                if key.startswith("mcp:"):
+                    parts = key.split(":", 2)
+                    if len(parts) == 3:
+                        runtime_tools.append({
+                            "server": parts[1],
+                            "tool": parts[2],
+                            "description": entry.get("description", ""),
+                        })
     except Exception:
         pass
     return {
         "configured": servers,
         "runtime_tools": runtime_tools,
     }
+
+
+class MCPCallReq(BaseModel):
+    server: str
+    tool: str
+    args: dict = {}
+
+
+_bot_processes: dict[str, object] = {}
+BOT_COMMANDS = {"telegram", "discord", "slack"}
+
+
+@app.get("/bots")
+def list_bots():
+    out = []
+    for name in BOT_COMMANDS:
+        p = _bot_processes.get(name)
+        if p is not None:
+            rc = getattr(p, "returncode", None)
+            if rc is None and hasattr(p, "poll"):
+                try:
+                    p.poll()
+                    rc = p.returncode
+                except Exception:
+                    rc = None
+            running = rc is None
+            out.append({
+                "name": name,
+                "running": running,
+                "pid": getattr(p, "pid", None),
+                "exit_code": rc,
+            })
+        else:
+            out.append({"name": name, "running": False, "pid": None, "exit_code": None})
+    return out
+
+
+class BotStartReq(BaseModel):
+    name: str
+
+
+@app.post("/bots/start")
+def start_bot(req: BotStartReq):
+    import subprocess
+    import sys
+
+    if req.name not in BOT_COMMANDS:
+        raise HTTPException(400, f"unknown bot: {req.name}")
+    existing = _bot_processes.get(req.name)
+    if existing is not None:
+        try:
+            existing.poll()
+            if existing.returncode is None:
+                raise HTTPException(409, f"{req.name} already running (pid={existing.pid})")
+        except Exception:
+            pass
+    try:
+        project_root = str(Path(__file__).resolve().parent.parent)
+        p = subprocess.Popen(
+            [sys.executable, "main.py", req.name],
+            cwd=project_root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        _bot_processes[req.name] = p
+        return {"ok": True, "name": req.name, "pid": p.pid}
+    except Exception as e:
+        raise HTTPException(500, f"start failed: {e}")
+
+
+@app.post("/bots/stop")
+def stop_bot(req: BotStartReq):
+    if req.name not in BOT_COMMANDS:
+        raise HTTPException(400, f"unknown bot: {req.name}")
+    p = _bot_processes.get(req.name)
+    if p is None:
+        raise HTTPException(404, "not running")
+    try:
+        p.terminate()
+        try:
+            p.wait(timeout=5)
+        except Exception:
+            p.kill()
+        _bot_processes.pop(req.name, None)
+        return {"ok": True, "name": req.name}
+    except Exception as e:
+        raise HTTPException(500, f"stop failed: {e}")
+
+
+@app.post("/mcp/call")
+async def mcp_call_api(req: MCPCallReq):
+    """MCP 도구 직접 호출 — 채팅을 거치지 않고 인자를 그대로 전달."""
+    orch = _init_runtime()
+    registry = None
+    for a in orch._agents.values():
+        if getattr(a, "tool_registry", None) is not None:
+            registry = a.tool_registry
+            break
+    if registry is None:
+        raise HTTPException(500, "registry unavailable")
+    key = f"mcp:{req.server}:{req.tool}"
+    if not registry.has(key):
+        raise HTTPException(404, f"MCP tool not registered: {key}")
+    proxy = registry.get(key)
+    try:
+        result = await proxy.call(req.args or {})
+        return {"ok": True, "result": str(result)}
+    except Exception as e:
+        raise HTTPException(500, f"MCP call failed: {e}")
 
 
 @app.get("/plugins")
@@ -992,6 +1150,40 @@ def list_plugins():
         }
     except Exception as e:
         return {"tools": [], "agents": [], "error": str(e)}
+
+
+@app.get("/metrics")
+def prometheus_metrics():
+    """daemon 내부에서 Prometheus-style 텍스트 메트릭 생성."""
+    from fastapi.responses import PlainTextResponse
+
+    orch = _init_runtime()
+    try:
+        stats = orch.router.get_token_stats() or {}
+    except Exception:
+        stats = {}
+    lines: list[str] = []
+    lines.append("# HELP raphael_model_calls Total model calls")
+    lines.append("# TYPE raphael_model_calls counter")
+    for model, s in stats.items():
+        safe = model.replace('"', '\\"')
+        lines.append(f'raphael_model_calls{{model="{safe}"}} {s.get("calls", 0)}')
+    lines.append("# HELP raphael_model_tokens_prompt Prompt tokens used")
+    lines.append("# TYPE raphael_model_tokens_prompt counter")
+    for model, s in stats.items():
+        safe = model.replace('"', '\\"')
+        lines.append(f'raphael_model_tokens_prompt{{model="{safe}"}} {s.get("prompt", 0)}')
+    lines.append("# HELP raphael_model_tokens_completion Completion tokens used")
+    lines.append("# TYPE raphael_model_tokens_completion counter")
+    for model, s in stats.items():
+        safe = model.replace('"', '\\"')
+        lines.append(f'raphael_model_tokens_completion{{model="{safe}"}} {s.get("completion", 0)}')
+    lines.append("# HELP raphael_model_latency_ms Total model latency in ms")
+    lines.append("# TYPE raphael_model_latency_ms counter")
+    for model, s in stats.items():
+        safe = model.replace('"', '\\"')
+        lines.append(f'raphael_model_latency_ms{{model="{safe}"}} {s.get("total_ms", 0)}')
+    return PlainTextResponse("\n".join(lines) + "\n")
 
 
 @app.get("/health-panel")
