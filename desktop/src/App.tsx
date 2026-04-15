@@ -40,8 +40,60 @@ export default function App() {
     args: Record<string, any>;
     timeout: number;
   } | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<{
+    version: string;
+    notes: string;
+    // opaque handle from Tauri updater
+    update: any;
+  } | null>(null);
+  const [updateInstalling, setUpdateInstalling] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Auto-check for app updates (non-blocking)
+    (async () => {
+      try {
+        const { check } = await import("@tauri-apps/plugin-updater");
+        const upd = await check();
+        if (upd) {
+          setUpdateInfo({
+            version: upd.version,
+            notes: upd.body || "",
+            update: upd,
+          });
+        }
+      } catch {
+        // Not running under Tauri or network blocked — silently skip
+      }
+    })();
+  }, []);
+
+  async function installUpdate() {
+    if (!updateInfo) return;
+    setUpdateInstalling(true);
+    setUpdateProgress(0);
+    try {
+      let total = 0;
+      let received = 0;
+      await updateInfo.update.downloadAndInstall((ev: any) => {
+        if (ev?.event === "Started") {
+          total = ev.data?.contentLength || 0;
+        } else if (ev?.event === "Progress") {
+          received += ev.data?.chunkLength || 0;
+          if (total > 0) setUpdateProgress((received / total) * 100);
+        } else if (ev?.event === "Finished") {
+          setUpdateProgress(100);
+        }
+      });
+      const { relaunch } = await import("@tauri-apps/plugin-process");
+      await relaunch();
+    } catch (e: any) {
+      alert(`업데이트 실패: ${e?.message || e}`);
+      setUpdateInstalling(false);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -285,6 +337,71 @@ export default function App() {
 
   return (
     <div className="app">
+      {updateInfo && (
+        <div className="approval-overlay">
+          <div className="approval-dialog">
+            <div
+              className="approval-title"
+              style={{ color: "#4338ca" }}
+            >
+              업데이트 가능: v{updateInfo.version}
+            </div>
+            {updateInfo.notes && (
+              <pre
+                className="approval-args"
+                style={{ maxHeight: 220, fontSize: 12 }}
+              >
+                {updateInfo.notes}
+              </pre>
+            )}
+            {updateInstalling ? (
+              <>
+                <div className="approval-hint">
+                  다운로드 {updateProgress.toFixed(0)}%
+                </div>
+                <div
+                  style={{
+                    height: 6,
+                    background: "#eef0f3",
+                    borderRadius: 3,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${updateProgress}%`,
+                      height: "100%",
+                      background: "#6366f1",
+                      transition: "width 0.2s",
+                    }}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="approval-hint">
+                  설치 후 앱이 자동 재시작됩니다.
+                </div>
+                <div className="approval-actions">
+                  <button
+                    className="approval-deny"
+                    onClick={() => setUpdateInfo(null)}
+                  >
+                    나중에
+                  </button>
+                  <button
+                    className="approval-approve"
+                    style={{ background: "#4338ca" }}
+                    onClick={installUpdate}
+                  >
+                    지금 설치
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {pendingApproval && (
         <div className="approval-overlay">
           <div className="approval-dialog">
