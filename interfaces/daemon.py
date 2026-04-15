@@ -324,6 +324,48 @@ def _ab_results_dir() -> Path:
     return Path.home() / ".raphael" / "ab_results"
 
 
+@app.get("/checkpoints")
+def list_checkpoints_api(limit: int = 100):
+    from core import checkpoint
+
+    out = []
+    for cp in checkpoint.list_checkpoints(limit=limit):
+        out.append({
+            "id": cp.id,
+            "operation": cp.operation,
+            "target": cp.target,
+            "backup_path": cp.backup_path,
+            "created": cp.created,
+            "note": cp.note,
+        })
+    return out
+
+
+class CheckpointRestoreReq(BaseModel):
+    id: str
+
+
+@app.post("/checkpoints/restore")
+def restore_checkpoint_api(req: CheckpointRestoreReq):
+    from core import checkpoint
+
+    msg = checkpoint.restore(req.id)
+    ok = "복원" in msg or "restored" in msg.lower() or msg.startswith("OK") or "없음" not in msg and "오류" not in msg
+    return {"ok": ok, "message": msg}
+
+
+class CheckpointCleanupReq(BaseModel):
+    days: int = 7
+
+
+@app.post("/checkpoints/cleanup")
+def cleanup_checkpoints(req: CheckpointCleanupReq):
+    from core import checkpoint
+
+    n = checkpoint.cleanup_old(days=req.days)
+    return {"deleted": n, "days": req.days}
+
+
 def _failures_dir() -> Path:
     return Path.home() / ".raphael" / "failures"
 

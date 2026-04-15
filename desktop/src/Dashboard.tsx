@@ -4,11 +4,12 @@ import {
   type AbResultDetail,
   type AbResultSummary,
   type AbRunResult,
+  type Checkpoint,
   type FailureDetail,
   type FailureSummary,
 } from "./api";
 
-type Tab = "ab" | "failures";
+type Tab = "ab" | "failures" | "checkpoints";
 
 export default function Dashboard({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("ab");
@@ -32,10 +33,18 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
           >
             실패 케이스
           </button>
+          <button
+            className={tab === "checkpoints" ? "active" : ""}
+            onClick={() => setTab("checkpoints")}
+          >
+            체크포인트
+          </button>
         </nav>
       </header>
       <main className="settings-body">
-        {tab === "ab" ? <AbTab /> : <FailuresTab />}
+        {tab === "ab" && <AbTab />}
+        {tab === "failures" && <FailuresTab />}
+        {tab === "checkpoints" && <CheckpointsTab />}
       </main>
     </div>
   );
@@ -220,6 +229,132 @@ function FailuresTab() {
                 <td className="actions">
                   <button onClick={() => open(f.file)}>보기</button>
                   <button onClick={() => remove(f.file)}>삭제</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function CheckpointsTab() {
+  const [list, setList] = useState<Checkpoint[]>([]);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  async function refresh() {
+    setLoading(true);
+    setMsg("");
+    try {
+      setList(await api.checkpoints());
+      setErr("");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function restore(id: string) {
+    if (!confirm(`${id} 복원? 현재 파일은 덮어쓰여집니다.`)) return;
+    try {
+      const res = await api.restoreCheckpoint(id);
+      setMsg(res.message);
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  async function cleanup() {
+    const daysStr = prompt("며칠 이전 체크포인트를 삭제할까요?", "7");
+    if (!daysStr) return;
+    const days = parseInt(daysStr);
+    if (!Number.isFinite(days) || days < 1) {
+      alert("유효한 일수를 입력하세요");
+      return;
+    }
+    try {
+      const res = await api.cleanupCheckpoints(days);
+      setMsg(`${res.deleted}개 삭제됨 (> ${res.days}일)`);
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  return (
+    <>
+      <div className="panel-toolbar">
+        <button onClick={refresh}>새로고침</button>
+        <button onClick={cleanup} style={{ marginLeft: 8 }}>
+          오래된 항목 정리
+        </button>
+      </div>
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="ok-msg">{msg}</div>}
+      {loading && <div className="muted">불러오는 중...</div>}
+      {!loading && list.length === 0 && (
+        <div className="muted">체크포인트가 없습니다.</div>
+      )}
+      {!loading && list.length > 0 && (
+        <table className="agent-table">
+          <thead>
+            <tr>
+              <th>생성 시각</th>
+              <th>작업</th>
+              <th>대상 파일</th>
+              <th>백업</th>
+              <th>메모</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((cp) => (
+              <tr key={cp.id}>
+                <td>{cp.created.replace("T", " ")}</td>
+                <td>
+                  <code>{cp.operation}</code>
+                </td>
+                <td
+                  style={{
+                    fontSize: 12,
+                    maxWidth: 320,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={cp.target}
+                >
+                  {cp.target}
+                </td>
+                <td>
+                  {cp.backup_path ? (
+                    <span
+                      className="badge"
+                      style={{ background: "#dcfce7", color: "#166534" }}
+                    >
+                      있음
+                    </span>
+                  ) : (
+                    <span className="muted">없음 (신규 파일)</span>
+                  )}
+                </td>
+                <td style={{ fontSize: 12 }}>{cp.note}</td>
+                <td className="actions">
+                  <button
+                    disabled={!cp.backup_path}
+                    onClick={() => restore(cp.id)}
+                  >
+                    복원
+                  </button>
                 </td>
               </tr>
             ))}

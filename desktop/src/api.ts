@@ -78,6 +78,15 @@ export interface AbResultDetail {
   results: AbRunResult[];
 }
 
+export interface Checkpoint {
+  id: string;
+  operation: string;
+  target: string;
+  backup_path: string | null;
+  created: string;
+  note: string;
+}
+
 export interface RoutingRule {
   agent?: string;
   min_messages?: number;
@@ -166,6 +175,13 @@ export const api = {
   abResults: () => jget<AbResultSummary[]>("/ab-results"),
   abResult: (name: string) =>
     jget<AbResultDetail>(`/ab-results/${encodeURIComponent(name)}`),
+
+  checkpoints: (limit = 100) =>
+    jget<Checkpoint[]>(`/checkpoints?limit=${limit}`),
+  restoreCheckpoint: (id: string) =>
+    jpost<{ ok: boolean; message: string }>("/checkpoints/restore", { id }),
+  cleanupCheckpoints: (days = 7) =>
+    jpost<{ deleted: number; days: number }>("/checkpoints/cleanup", { days }),
 
   failures: () => jget<FailureSummary[]>("/failures"),
   failure: (name: string) =>
