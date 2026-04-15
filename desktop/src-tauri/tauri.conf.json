@@ -41,7 +41,7 @@
     "updater": {
       "active": true,
       "endpoints": [
-        "https://github.com/TECHD-Studio/Raphael/releases/latest/download/latest.json"
+        "https://github.com/TechD-Studio/Raphael/releases/latest/download/latest.json"
       ],
       "dialog": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdEOUM0RjY1MjY0NjAxQjQKUldTMEFVWW1aVStjZlNsUXduNTYwYk9XVFdYbW9WcC9ZTEJUOWsybU1GRG4vbytQZ0wyc0VxNVEK"

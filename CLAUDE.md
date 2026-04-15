@@ -73,7 +73,7 @@ raphael web                          # Gradio UI
 - `.github/workflows/release.yml` — macOS arm64 + Windows x64 빌드 매트릭스
 - `desktop/SIGNING.md` — 키 생성/배포 가이드
 - Tauri 서명 키페어 생성 완료 (`~/.tauri/raphael.key` / `.key.pub`)
-- `desktop/src-tauri/tauri.conf.json` — endpoints = `https://github.com/TECHD-Studio/Raphael/...`, pubkey 등록 완료
+- `desktop/src-tauri/tauri.conf.json` — endpoints = `https://github.com/TechD-Studio/Raphael/...`, pubkey 등록 완료
 
 ### 다음 세션 이어가기
 1. **GitHub Secrets 등록** (사용자가 브라우저에서 직접):
