@@ -147,7 +147,7 @@ export default function App() {
           <button
             title="A/B 대시보드"
             onClick={() => setView("dashboard")}
-            style={{ marginLeft: 4 }}
+            style={{ marginLeft: 4, fontSize: 11, fontWeight: 300 }}
           >
             A/B
           </button>
