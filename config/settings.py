@@ -20,8 +20,21 @@ def _resolve_default_config_dir() -> Path:
         return Path(_sys._MEIPASS) / "config"
     return Path(__file__).parent
 
+
+def _resolve_override_config_dir(default: Path) -> Path:
+    """오버라이드(settings.local.yaml, .env)가 기록될 영속 경로.
+
+    프로즌 모드에서 _MEIPASS는 프로세스 종료 시 날아가므로 ~/.raphael/config로 라우팅.
+    """
+    import sys as _sys
+    if hasattr(_sys, "_MEIPASS"):
+        home_cfg = Path.home() / ".raphael" / "config"
+        home_cfg.mkdir(parents=True, exist_ok=True)
+        return home_cfg
+    return default
+
 _DEFAULT_CONFIG_DIR = _resolve_default_config_dir()
-_CONFIG_DIR = Path(os.environ.get("RAPHAEL_CONFIG_DIR", _DEFAULT_CONFIG_DIR))
+_CONFIG_DIR = Path(os.environ.get("RAPHAEL_CONFIG_DIR", _resolve_override_config_dir(_DEFAULT_CONFIG_DIR)))
 _PROJECT_ROOT = Path(os.environ.get("RAPHAEL_PROJECT_ROOT", _CONFIG_DIR.parent))
 
 # .env 로드

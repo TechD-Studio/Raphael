@@ -323,6 +323,23 @@ export const api = {
     jget<{ total: number; positive: number; negative: number; neutral: number }>(
       "/feedback/stats",
     ),
+  stt: async (blob: Blob): Promise<{ text: string }> => {
+    const fd = new FormData();
+    fd.append("audio", blob, "audio.webm");
+    const r = await fetch(`${BASE}/stt`, { method: "POST", body: fd });
+    if (!r.ok) throw new Error(`STT ${r.status}`);
+    return r.json();
+  },
+  tts: (text: string) =>
+    jpost<{ ok: boolean; message: string }>("/tts", { text }),
+  recordFeedback: (payload: {
+    session?: string;
+    agent?: string;
+    question?: string;
+    response?: string;
+    score: number;
+    comment?: string;
+  }) => jpost<{ ok: boolean }>("/feedback", payload),
   systemUpdate: () =>
     jpost<{
       ok: boolean;
@@ -471,6 +488,7 @@ export const api = {
       onError?: (msg: string) => void;
       onDone?: () => void;
       onToolCall?: (data: any) => void;
+      onToolResult?: (data: any) => void;
       onApproval?: (data: {
         token: string;
         tool: string;
@@ -509,6 +527,9 @@ export const api = {
               break;
             case "tool_call":
               handlers.onToolCall?.(ev.data);
+              break;
+            case "tool_result":
+              handlers.onToolResult?.(ev.data);
               break;
             case "approval_required":
               handlers.onApproval?.(ev.data);

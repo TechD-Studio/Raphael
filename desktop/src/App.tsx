@@ -28,6 +28,7 @@ export default function App() {
   const [tools, setTools] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchHits, setSearchHits] = useState<SessionHit[]>([]);
+  const [tagFilter, setTagFilter] = useState<string>("");
   const [searching, setSearching] = useState(false);
   const [agentNames, setAgentNames] = useState<string[]>([]);
   const [targetAgent, setTargetAgent] = useState<string>("");
@@ -48,8 +49,25 @@ export default function App() {
   } | null>(null);
   const [updateInstalling, setUpdateInstalling] = useState(false);
   const [updateProgress, setUpdateProgress] = useState(0);
+  const [tokenStats, setTokenStats] = useState<Record<
+    string,
+    { calls: number; prompt: number; completion: number; total_ms: number }
+  > | null>(null);
+  const [tokenPanelOpen, setTokenPanelOpen] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [plannerSteps, setPlannerSteps] = useState<
+    {
+      agent: string;
+      task: string;
+      status: "running" | "done" | "error";
+      output?: string;
+    }[]
+  >([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
     // Auto-check for app updates (non-blocking)
@@ -172,6 +190,42 @@ export default function App() {
     } catch {}
   }
 
+  async function toggleRecord() {
+    if (recording) {
+      recorderRef.current?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      recordChunksRef.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) recordChunksRef.current.push(e.data);
+      };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setRecording(false);
+        const blob = new Blob(recordChunksRef.current, {
+          type: mr.mimeType || "audio/webm",
+        });
+        if (blob.size === 0) return;
+        try {
+          const r = await api.stt(blob);
+          if (r.text?.trim()) {
+            setInput((prev) => (prev ? prev + " " : "") + r.text.trim());
+          }
+        } catch (e: any) {
+          alert(`음성 인식 실패: ${e?.message || e}`);
+        }
+      };
+      recorderRef.current = mr;
+      mr.start();
+      setRecording(true);
+    } catch (e: any) {
+      alert(`마이크 접근 실패: ${e?.message || e}`);
+    }
+  }
+
   async function sendMessage() {
     if ((!input.trim() && pendingImages.length === 0) || streaming) return;
     const text = input.trim();
@@ -186,6 +240,7 @@ export default function App() {
     setStreaming(true);
     setStreamBuf("");
     setTools([]);
+    setPlannerSteps([]);
     let buf = "";
     try {
       await api.sendMessage(
@@ -199,6 +254,35 @@ export default function App() {
           },
           onToolCall: (d) => {
             setTools((tt) => [...tt, `🔧 ${d?.name ?? "?"}`]);
+            if (d?.name === "delegate") {
+              const args = d?.args || {};
+              setPlannerSteps((s) => [
+                ...s,
+                {
+                  agent: args.agent || "?",
+                  task: args.task || "",
+                  status: "running",
+                },
+              ]);
+            }
+          },
+          onToolResult: (d) => {
+            if (d?.name === "delegate") {
+              setPlannerSteps((s) => {
+                const next = [...s];
+                for (let i = next.length - 1; i >= 0; i--) {
+                  if (next[i].status === "running") {
+                    next[i] = {
+                      ...next[i],
+                      status: d?.error ? "error" : "done",
+                      output: d?.error || d?.output || "",
+                    };
+                    break;
+                  }
+                }
+                return next;
+              });
+            }
           },
           onApproval: (d) => {
             setPendingApproval(d);
@@ -212,6 +296,9 @@ export default function App() {
         activeSkill || undefined,
       );
       setMessages((m) => [...m, { role: "assistant", content: buf || "(빈 응답)" }]);
+      if (ttsEnabled && buf) {
+        api.tts(buf).catch(() => {});
+      }
     } catch (e) {
       setMessages((m) => [...m, { role: "assistant", content: `⚠ 오류: ${e}` }]);
     } finally {
@@ -374,16 +461,8 @@ export default function App() {
   async function showTokens() {
     try {
       const stats = await api.tokenStats();
-      const entries = Object.entries(stats);
-      if (!entries.length) {
-        alert("아직 호출 기록이 없습니다.");
-        return;
-      }
-      const lines = entries.map(([model, s]) => {
-        const total = s.prompt + s.completion;
-        return `${model}\n  ${s.calls}회, prompt ${s.prompt.toLocaleString()} + completion ${s.completion.toLocaleString()} = ${total.toLocaleString()} tokens, ${(s.total_ms / 1000).toFixed(1)}s`;
-      });
-      alert("토큰 사용량\n\n" + lines.join("\n\n"));
+      setTokenStats(stats);
+      setTokenPanelOpen(true);
     } catch (e) {
       alert(`token stats 실패: ${e}`);
     }
@@ -493,16 +572,39 @@ export default function App() {
           </div>
         </div>
       )}
+      {tokenPanelOpen && tokenStats && (
+        <div
+          className="approval-overlay"
+          onClick={() => setTokenPanelOpen(false)}
+        >
+          <div
+            className="approval-dialog"
+            onClick={(e) => e.stopPropagation()}
+            style={{ minWidth: 520 }}
+          >
+            <div className="approval-title">토큰 사용량 (모델별)</div>
+            <TokenChart stats={tokenStats} />
+            <div className="approval-actions">
+              <button
+                className="primary"
+                onClick={() => setTokenPanelOpen(false)}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <aside className="sidebar">
         <div className="sidebar-head">
           <span className="brand">Raphael</span>
           <button onClick={startNewSession} title="새 세션">＋</button>
           <button
-            title="A/B 대시보드"
+            title="대시보드"
             onClick={() => setView("dashboard")}
-            style={{ marginLeft: 4, fontSize: 11, fontWeight: 300 }}
+            style={{ marginLeft: 4 }}
           >
-            A/B
+            📊
           </button>
           <button
             title="설정"
@@ -571,9 +673,26 @@ export default function App() {
             ))}
           </div>
         )}
+        {tagFilter && (
+          <div className="tag-filter-bar">
+            <span className="muted">필터:</span>
+            <span className="session-tag on">#{tagFilter}</span>
+            <button
+              className="tag-filter-clear"
+              onClick={() => setTagFilter("")}
+              title="필터 해제"
+            >
+              ×
+            </button>
+          </div>
+        )}
         <div className="sessions">
-          {sessions.length === 0 && <div className="empty">세션 없음</div>}
-          {sessions.map((s) => (
+          {sessions.filter((s) => !tagFilter || (s.tags || []).includes(tagFilter)).length === 0 && (
+            <div className="empty">{tagFilter ? "해당 태그의 세션 없음" : "세션 없음"}</div>
+          )}
+          {sessions
+            .filter((s) => !tagFilter || (s.tags || []).includes(tagFilter))
+            .map((s) => (
             <div
               key={s.id}
               className={`session ${s.id === activeSid ? "active" : ""}`}
@@ -583,7 +702,15 @@ export default function App() {
               {s.tags && s.tags.length > 0 && (
                 <div className="session-tags">
                   {s.tags.map((t) => (
-                    <span key={t} className="session-tag">
+                    <span
+                      key={t}
+                      className={`session-tag ${tagFilter === t ? "on" : ""}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTagFilter(tagFilter === t ? "" : t);
+                      }}
+                      title={`태그 "${t}"로 필터`}
+                    >
                       #{t}
                     </span>
                   ))}
@@ -705,8 +832,17 @@ export default function App() {
                   {m.content}
                 </ReactMarkdown>
               </div>
+              {m.role === "assistant" && (
+                <FeedbackBar
+                  session={activeSid}
+                  agent={targetAgent}
+                  question={i > 0 ? messages[i - 1].content : ""}
+                  response={m.content}
+                />
+              )}
             </div>
           ))}
+          {plannerSteps.length > 0 && <PlannerSteps steps={plannerSteps} />}
           {streaming && (
             <div className="msg msg-assistant streaming">
               <div className="role">Raphael (생성 중...)</div>
@@ -773,6 +909,21 @@ export default function App() {
             >
               📋
             </button>
+            <button
+              className={`tool-btn ${recording ? "recording" : ""}`}
+              onClick={toggleRecord}
+              title={recording ? "녹음 중지 (전사)" : "음성 입력"}
+              disabled={streaming}
+            >
+              {recording ? "⏹" : "🎙"}
+            </button>
+            <button
+              className={`tool-btn ${ttsEnabled ? "active" : ""}`}
+              onClick={() => setTtsEnabled(!ttsEnabled)}
+              title={ttsEnabled ? "응답 음성 ON" : "응답 음성 OFF"}
+            >
+              🔊
+            </button>
           </div>
           <textarea
             value={input}
@@ -800,6 +951,172 @@ export default function App() {
           </button>
         </div>
       </main>
+    </div>
+  );
+}
+
+function FeedbackBar({
+  session,
+  agent,
+  question,
+  response,
+}: {
+  session: string;
+  agent: string;
+  question: string;
+  response: string;
+}) {
+  const [sent, setSent] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function send(score: number) {
+    if (busy || sent !== null) return;
+    setBusy(true);
+    try {
+      await api.recordFeedback({
+        session,
+        agent,
+        question,
+        response,
+        score,
+      });
+      setSent(score);
+    } catch {
+      /* swallow */
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="feedback-bar">
+      <button
+        className={`fb ${sent === 1 ? "on" : ""}`}
+        onClick={() => send(1)}
+        disabled={busy || sent !== null}
+        title="좋은 응답"
+      >
+        👍
+      </button>
+      <button
+        className={`fb ${sent === -1 ? "on" : ""}`}
+        onClick={() => send(-1)}
+        disabled={busy || sent !== null}
+        title="나쁜 응답"
+      >
+        👎
+      </button>
+      {sent !== null && <span className="fb-thanks">기록됨</span>}
+    </div>
+  );
+}
+
+function TokenChart({
+  stats,
+}: {
+  stats: Record<
+    string,
+    { calls: number; prompt: number; completion: number; total_ms: number }
+  >;
+}) {
+  const entries = Object.entries(stats);
+  if (entries.length === 0) {
+    return <div className="muted">아직 호출 기록이 없습니다.</div>;
+  }
+  const max = Math.max(
+    ...entries.map(([, s]) => s.prompt + s.completion),
+    1,
+  );
+  const totalCalls = entries.reduce((sum, [, s]) => sum + s.calls, 0);
+  const totalTokens = entries.reduce(
+    (sum, [, s]) => sum + s.prompt + s.completion,
+    0,
+  );
+  const totalMs = entries.reduce((sum, [, s]) => sum + s.total_ms, 0);
+
+  return (
+    <div className="token-chart">
+      <div className="token-totals">
+        <span>총 {totalCalls.toLocaleString()}회</span>
+        <span>{totalTokens.toLocaleString()} tokens</span>
+        <span>{(totalMs / 1000).toFixed(1)}s</span>
+      </div>
+      <div className="token-rows">
+        {entries.map(([model, s]) => {
+          const total = s.prompt + s.completion;
+          const promptPct = (s.prompt / max) * 100;
+          const completionPct = (s.completion / max) * 100;
+          return (
+            <div key={model} className="token-row">
+              <div className="token-row-head">
+                <code>{model}</code>
+                <span className="muted">
+                  {s.calls}회 · {total.toLocaleString()} tok ·{" "}
+                  {(s.total_ms / 1000).toFixed(1)}s
+                </span>
+              </div>
+              <div className="token-bar">
+                <div
+                  className="token-bar-prompt"
+                  style={{ width: `${promptPct}%` }}
+                  title={`prompt ${s.prompt.toLocaleString()}`}
+                />
+                <div
+                  className="token-bar-completion"
+                  style={{ width: `${completionPct}%` }}
+                  title={`completion ${s.completion.toLocaleString()}`}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="token-legend">
+        <span className="legend-prompt"></span> prompt
+        <span className="legend-completion" style={{ marginLeft: 12 }}></span>{" "}
+        completion
+      </div>
+    </div>
+  );
+}
+
+function PlannerSteps({
+  steps,
+}: {
+  steps: {
+    agent: string;
+    task: string;
+    status: "running" | "done" | "error";
+    output?: string;
+  }[];
+}) {
+  return (
+    <div className="planner-steps">
+      <div className="planner-steps-head">
+        🧭 Planner — {steps.length}개 단계
+      </div>
+      {steps.map((s, i) => (
+        <div key={i} className={`planner-step planner-${s.status}`}>
+          <div className="planner-step-head">
+            <span className="planner-step-num">#{i + 1}</span>
+            <code className="planner-step-agent">{s.agent}</code>
+            <span className="planner-step-status">
+              {s.status === "running"
+                ? "⏳ 진행 중"
+                : s.status === "done"
+                  ? "✓ 완료"
+                  : "✗ 실패"}
+            </span>
+          </div>
+          <div className="planner-step-task">{s.task}</div>
+          {s.output && (
+            <details className="planner-step-output">
+              <summary>결과 보기</summary>
+              <pre>{s.output}</pre>
+            </details>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

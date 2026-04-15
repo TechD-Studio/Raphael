@@ -16,14 +16,15 @@ import {
 type Tab =
   | "agents"
   | "skills"
+  | "hooks"
+  | "profile"
   | "models"
   | "routing"
-  | "rag"
-  | "profile"
   | "pool"
-  | "hooks"
+  | "server"
+  | "rag"
   | "security"
-  | "server";
+  | "update";
 
 export default function Settings({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("agents");
@@ -49,6 +50,18 @@ export default function Settings({ onBack }: { onBack: () => void }) {
             스킬
           </button>
           <button
+            className={tab === "hooks" ? "active" : ""}
+            onClick={() => setTab("hooks")}
+          >
+            훅
+          </button>
+          <button
+            className={tab === "profile" ? "active" : ""}
+            onClick={() => setTab("profile")}
+          >
+            프로필
+          </button>
+          <button
             className={tab === "models" ? "active" : ""}
             onClick={() => setTab("models")}
           >
@@ -61,28 +74,22 @@ export default function Settings({ onBack }: { onBack: () => void }) {
             라우팅
           </button>
           <button
-            className={tab === "rag" ? "active" : ""}
-            onClick={() => setTab("rag")}
-          >
-            RAG
-          </button>
-          <button
-            className={tab === "profile" ? "active" : ""}
-            onClick={() => setTab("profile")}
-          >
-            프로필
-          </button>
-          <button
             className={tab === "pool" ? "active" : ""}
             onClick={() => setTab("pool")}
           >
             풀
           </button>
           <button
-            className={tab === "hooks" ? "active" : ""}
-            onClick={() => setTab("hooks")}
+            className={tab === "server" ? "active" : ""}
+            onClick={() => setTab("server")}
           >
-            훅
+            서버
+          </button>
+          <button
+            className={tab === "rag" ? "active" : ""}
+            onClick={() => setTab("rag")}
+          >
+            RAG
           </button>
           <button
             className={tab === "security" ? "active" : ""}
@@ -91,24 +98,25 @@ export default function Settings({ onBack }: { onBack: () => void }) {
             보안
           </button>
           <button
-            className={tab === "server" ? "active" : ""}
-            onClick={() => setTab("server")}
+            className={tab === "update" ? "active" : ""}
+            onClick={() => setTab("update")}
           >
-            서버
+            업데이트
           </button>
         </nav>
       </header>
       <main className="settings-body">
         {tab === "agents" && <AgentsPanel />}
         {tab === "skills" && <SkillsPanel />}
+        {tab === "hooks" && <HooksPanel />}
+        {tab === "profile" && <ProfilePanel />}
         {tab === "models" && <ModelsPanel />}
         {tab === "routing" && <RoutingPanel />}
-        {tab === "rag" && <RagPanel />}
-        {tab === "profile" && <ProfilePanel />}
         {tab === "pool" && <PoolPanel />}
-        {tab === "hooks" && <HooksPanel />}
-        {tab === "security" && <SecurityPanel />}
         {tab === "server" && <ServerPanel />}
+        {tab === "rag" && <RagPanel />}
+        {tab === "security" && <SecurityPanel />}
+        {tab === "update" && <UpdatePanel />}
       </main>
     </div>
   );
@@ -1822,6 +1830,59 @@ function ServerPanel() {
           {saving ? "저장 중..." : "저장"}
         </button>
       </div>
+    </div>
+  );
+}
+
+function UpdatePanel() {
+  const [updating, setUpdating] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  async function runUpdate() {
+    if (!confirm("git pull + pip install -e . 를 실행합니다. 계속?")) return;
+    setUpdating(true);
+    setMsg("");
+    try {
+      const r = await api.systemUpdate();
+      setMsg(
+        (r.ok ? "✓ " : "✗ ") +
+          [r.pull, r.pip, r.note, r.error, r.output]
+            .filter(Boolean)
+            .join("\n\n"),
+      );
+    } catch (e: any) {
+      setMsg(`오류: ${e.message}`);
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  return (
+    <div className="agent-editor">
+      <h3 style={{ marginTop: 0 }}>업데이트</h3>
+      <p className="muted">
+        git pull + pip install -e . 를 실행합니다. 완료 후 앱 재시작이 필요합니다.
+      </p>
+      <div className="row">
+        <button className="primary" onClick={runUpdate} disabled={updating}>
+          {updating ? "업데이트 중..." : "지금 업데이트"}
+        </button>
+      </div>
+      {msg && (
+        <pre
+          style={{
+            marginTop: 12,
+            background: "#f9fafb",
+            border: "1px solid #e7e9ef",
+            borderRadius: 6,
+            padding: 10,
+            fontSize: 12,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {msg}
+        </pre>
+      )}
     </div>
   );
 }

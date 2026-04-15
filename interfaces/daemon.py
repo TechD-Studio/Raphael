@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import typer
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from loguru import logger
@@ -988,6 +988,45 @@ def take_screenshot():
             pass
 
 
+@app.post("/stt")
+async def stt_endpoint(audio: UploadFile = File(...)):
+    """업로드된 오디오를 텍스트로 변환 (whisper)."""
+    import tempfile
+
+    from interfaces.voice import stt_transcribe
+
+    suffix = Path(audio.filename or "audio.webm").suffix or ".webm"
+    data = await audio.read()
+    if not data:
+        raise HTTPException(400, "empty audio")
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        tmp.write(data)
+        tmp.close()
+        text = stt_transcribe(tmp.name)
+        return {"text": text}
+    finally:
+        try:
+            Path(tmp.name).unlink()
+        except Exception:
+            pass
+
+
+class TtsReq(BaseModel):
+    text: str
+
+
+@app.post("/tts")
+async def tts_endpoint(req: TtsReq):
+    """텍스트를 OS TTS로 발화 (백그라운드)."""
+    from interfaces.voice import tts_speak
+
+    if not req.text.strip():
+        return {"ok": False, "message": "empty text"}
+    msg = await tts_speak(req.text)
+    return {"ok": True, "message": msg}
+
+
 @app.get("/mcp/servers")
 def list_mcp_servers():
     from config.settings import get_settings
@@ -1214,6 +1253,30 @@ def feedback_stats():
     from core import feedback
 
     return feedback.stats()
+
+
+class FeedbackReq(BaseModel):
+    session: str = ""
+    agent: str = ""
+    question: str = ""
+    response: str = ""
+    score: int  # +1 / -1 / 0
+    comment: str = ""
+
+
+@app.post("/feedback")
+def feedback_record(req: FeedbackReq):
+    from core import feedback
+
+    feedback.record(
+        session=req.session,
+        agent=req.agent,
+        question=req.question,
+        response=req.response,
+        score=req.score,
+        comment=req.comment,
+    )
+    return {"ok": True}
 
 
 @app.post("/system/update")

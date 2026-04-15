@@ -65,23 +65,31 @@ raphael web                          # Gradio UI
 
 ## 데스크톱 앱 (Tauri + React) 진행 상태
 
-### 완료 (v0.1.1 publish)
+### 현재 버전: v0.1.10 (Tauri)
+
+### 인프라 완료
 - `interfaces/daemon.py` — FastAPI 데몬 (lifespan handler), SSE 메시지, 구버전 list형 세션 파일 skip
 - `desktop/build_sidecar.sh` — PyInstaller 단일 바이너리 (macOS 74MB / Windows 68MB)
-- `desktop/src-tauri/` — Tauri 셸, sidecar spawn/kill, tray(아이콘 fallback), 플랫폼별 단축키, updater, **panic hook → crash.log**
-- `desktop/src/` — React UI (사이드바 세션, 모델 셀렉터, SSE 스트리밍, markdown + highlight.js)
-- `.github/workflows/release.yml` — macOS arm64 + Windows x64 빌드 매트릭스 + latest.json
-- GitHub repo `TechD-Studio/Raphael` (private), Secrets(`TAURI_SIGNING_PRIVATE_KEY`, `..._PASSWORD`) 등록
-- **v0.1.1 릴리스 publish**, DMG/EXE/MSI 양 플랫폼 실행 검증 완료
+- `desktop/src-tauri/` — Tauri 셸, sidecar spawn/kill, tray, 플랫폼별 단축키, updater (자동 업데이트 프롬프트 배선 완료), **panic hook → crash.log**, 비밀번호 없는 서명 키페어
+- `.github/workflows/release.yml` — macOS arm64 + Windows x64 빌드 매트릭스 + latest.json (서명 + Windows 아티팩트 포함)
+- GitHub repo `TechD-Studio/Raphael` (private), DMG/EXE/MSI 배포
+
+### 기능 완료 (UI)
+- **채팅**: 사이드바 세션, 모델 셀렉터, SSE 스트리밍, markdown + highlight.js, 클립보드 붙여넣기, 멀티모달 이미지 첨부 + 스크린샷 캡처, 에이전트 타겟 셀렉터
+- **스킬/에이전트**: 스킬 CRUD, 스킬 셀렉터, 프로파일, 풀, 훅, slot 기반 라우팅 에디터, 봇 매니저
+- **보안**: 허용 경로 + Keychain 비밀, 위험 도구 인터랙티브 승인 다이얼로그
+- **관찰성**: 활동 로그, 감사 로그 + 체인 검증, 체크포인트 뷰어/복원, 세션 시맨틱 검색 + 태그
+- **시스템 패널**: health, feedback, MCP 호출 UI, plugins, update, /metrics, 모델 pull
+- **RAG**: Obsidian 관리
+- **기타**: 파일 변환, 레이아웃 스크롤 격리
 
 ### 글로벌 단축키
 - macOS: `Cmd+Shift+R` 창 토글
 - Windows/Linux: `Ctrl+Alt+R` 창 토글 (Win+Shift+R는 OS 예약어로 회피)
 
-### 다음 기능
-- 에이전트/모델 설정 GUI (React 페이지 + daemon endpoint)
+### 남은 작업
 - A/B 대시보드 (`raphael ab-test` 결과 시각화)
-- 아이콘 디자인 (현재 Tauri 기본 아이콘 유지 중)
+- 아이콘 디자인 (현재 Tauri 기본 아이콘)
 - 코드 서명 (Apple Developer $99/년 + Windows EV — 추후)
 
 ### 알려진 이슈
