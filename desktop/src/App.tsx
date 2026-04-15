@@ -2,7 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { api, newSessionId, type Message, type SessionMeta, type ModelsInfo } from "./api";
+import {
+  api,
+  newSessionId,
+  type Message,
+  type SessionMeta,
+  type ModelsInfo,
+  type SessionHit,
+} from "./api";
 import Settings from "./Settings";
 import Dashboard from "./Dashboard";
 import "highlight.js/styles/github-dark.css";
@@ -19,6 +26,9 @@ export default function App() {
   const [models, setModels] = useState<ModelsInfo | null>(null);
   const [healthy, setHealthy] = useState<boolean>(false);
   const [tools, setTools] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchHits, setSearchHits] = useState<SessionHit[]>([]);
+  const [searching, setSearching] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -150,6 +160,34 @@ export default function App() {
     }
   }
 
+  async function runSessionSearch() {
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchHits([]);
+      return;
+    }
+    setSearching(true);
+    try {
+      const hits = await api.searchSessions(q, 15);
+      setSearchHits(hits);
+    } catch (e: any) {
+      alert(`검색 실패: ${e.message || e}`);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function reindexSessions() {
+    if (!confirm("모든 세션을 재인덱싱합니다 (임베딩 호출, 시간 소요). 계속?"))
+      return;
+    try {
+      const r = await api.reindexSessions();
+      alert(`${r.indexed}개 메시지 인덱싱됨.`);
+    } catch (e: any) {
+      alert(`인덱싱 실패: ${e.message || e}`);
+    }
+  }
+
   async function showTokens() {
     try {
       const stats = await api.tokenStats();
@@ -196,6 +234,65 @@ export default function App() {
             ⚙
           </button>
         </div>
+        <div className="session-search">
+          <input
+            placeholder="세션 검색 (의미 기반)"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") runSessionSearch();
+              if (e.key === "Escape") {
+                setSearchQuery("");
+                setSearchHits([]);
+              }
+            }}
+          />
+          {searchQuery && (
+            <button
+              className="session-search-clear"
+              onClick={() => {
+                setSearchQuery("");
+                setSearchHits([]);
+              }}
+              title="지우기"
+            >
+              ×
+            </button>
+          )}
+          <button
+            className="session-search-reindex"
+            onClick={reindexSessions}
+            title="모든 세션 재인덱싱"
+          >
+            ⟳
+          </button>
+        </div>
+        {searchHits.length > 0 && (
+          <div className="search-results">
+            <div className="search-results-head">
+              {searching ? "검색 중..." : `결과 ${searchHits.length}`}
+            </div>
+            {searchHits.map((h, i) => (
+              <div
+                key={i}
+                className="search-hit"
+                onClick={() => {
+                  loadSession(h.session_id);
+                  setSearchHits([]);
+                  setSearchQuery("");
+                }}
+              >
+                <div className="search-hit-head">
+                  <code>{h.session_id}</code>
+                  <span className="muted">{h.role}</span>
+                </div>
+                <div className="search-hit-content">
+                  {h.content.slice(0, 120)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="sessions">
           {sessions.length === 0 && <div className="empty">세션 없음</div>}
           {sessions.map((s) => (
@@ -205,6 +302,15 @@ export default function App() {
               onClick={() => loadSession(s.id)}
             >
               <div className="session-title">{s.title || "(빈 세션)"}</div>
+              {s.tags && s.tags.length > 0 && (
+                <div className="session-tags">
+                  {s.tags.map((t) => (
+                    <span key={t} className="session-tag">
+                      #{t}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="session-meta">
                 <span>{s.agent}</span>
                 <span>{s.turns}턴</span>

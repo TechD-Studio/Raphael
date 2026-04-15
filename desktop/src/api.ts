@@ -7,6 +7,14 @@ export interface SessionMeta {
   title: string;
   turns: number;
   mtime: number;
+  tags?: string[];
+}
+
+export interface SessionHit {
+  session_id: string;
+  role: string;
+  content: string;
+  distance: number;
 }
 
 export interface Message {
@@ -161,6 +169,10 @@ export const api = {
   health: () => jget<{ ok: boolean; version: string }>("/healthz"),
   sessions: () => jget<SessionMeta[]>("/sessions"),
   session: (id: string) => jget<SessionDetail>(`/sessions/${id}`),
+  searchSessions: (query: string, n_results = 10) =>
+    jpost<SessionHit[]>("/sessions/search", { query, n_results }),
+  reindexSessions: () =>
+    jpost<{ indexed: number }>("/sessions/reindex", {}),
   deleteSession: async (id: string) => {
     const r = await fetch(`${BASE}/sessions/${id}`, { method: "DELETE" });
     if (!r.ok) throw new Error(`${r.status}`);

@@ -105,6 +105,7 @@ def list_sessions():
                 "title": (first_user or "(빈)")[:60],
                 "turns": sum(1 for m in convo if m.get("role") == "user"),
                 "mtime": p.stat().st_mtime,
+                "tags": data.get("tags") or [],
             })
         except Exception as e:
             logger.debug(f"세션 읽기 실패 {p.name}: {e}")
@@ -117,6 +118,45 @@ def get_session(sid: str):
     if not s:
         raise HTTPException(404, "세션 없음")
     return {"id": s.id, "agent": s.agent, "conversation": s.conversation}
+
+
+class SessionSearchReq(BaseModel):
+    query: str
+    n_results: int = 10
+
+
+@app.post("/sessions/search")
+async def search_sessions(req: SessionSearchReq):
+    if not req.query.strip():
+        raise HTTPException(400, "query required")
+    orch = _init_runtime()
+    try:
+        from memory.conversation_index import ConversationIndex
+    except Exception as e:
+        raise HTTPException(500, f"ChromaDB unavailable: {e}")
+    idx = ConversationIndex(orch.router)
+    hits = await idx.search(req.query, n_results=req.n_results)
+    return [
+        {
+            "session_id": h.session_id,
+            "role": h.role,
+            "content": h.content,
+            "distance": h.distance,
+        }
+        for h in hits
+    ]
+
+
+@app.post("/sessions/reindex")
+async def reindex_sessions():
+    orch = _init_runtime()
+    try:
+        from memory.conversation_index import ConversationIndex
+    except Exception as e:
+        raise HTTPException(500, f"ChromaDB unavailable: {e}")
+    idx = ConversationIndex(orch.router)
+    n = await idx.index_all()
+    return {"indexed": n}
 
 
 @app.get("/sessions/{sid}/export")
