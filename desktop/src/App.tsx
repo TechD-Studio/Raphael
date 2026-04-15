@@ -29,6 +29,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchHits, setSearchHits] = useState<SessionHit[]>([]);
   const [searching, setSearching] = useState(false);
+  const [agentNames, setAgentNames] = useState<string[]>([]);
+  const [targetAgent, setTargetAgent] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -48,6 +50,10 @@ export default function App() {
         await refreshSessions();
         try {
           setModels(await api.models());
+        } catch {}
+        try {
+          const ags = await api.agents();
+          setAgentNames(ags.filter((a) => a.active).map((a) => a.name));
         } catch {}
       }
     })();
@@ -110,7 +116,7 @@ export default function App() {
     setTools([]);
     let buf = "";
     try {
-      await api.sendMessage(activeSid, text, undefined, {
+      await api.sendMessage(activeSid, text, targetAgent || undefined, {
         onChunk: (t) => {
           buf += t;
           setStreamBuf(buf);
@@ -351,6 +357,27 @@ export default function App() {
           <span className="muted" style={{ fontSize: 12 }}>
             {activeSid ? `session: ${activeSid}` : "new session"}
           </span>
+          <label className="muted" style={{ fontSize: 12, marginLeft: 16 }}>
+            에이전트:
+            <select
+              value={targetAgent}
+              onChange={(e) => setTargetAgent(e.target.value)}
+              style={{
+                marginLeft: 4,
+                fontSize: 12,
+                padding: "2px 6px",
+                border: "1px solid #d4d7df",
+                borderRadius: 4,
+              }}
+            >
+              <option value="">(자동)</option>
+              {agentNames.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="spacer" />
           <button
             className="tool-btn"
