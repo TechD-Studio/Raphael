@@ -215,6 +215,22 @@ class MessageReq(BaseModel):
     skill: str | None = None  # if set, prepend skill prompt as system addendum
 
 
+_pending_approvals: dict[str, asyncio.Future] = {}
+
+
+class ApprovalReq(BaseModel):
+    approved: bool
+
+
+@app.post("/approvals/{token}")
+def resolve_approval(token: str, req: ApprovalReq):
+    fut = _pending_approvals.get(token)
+    if fut is None or fut.done():
+        raise HTTPException(404, "no pending approval for that token")
+    fut.set_result(bool(req.approved))
+    return {"ok": True, "token": token, "approved": req.approved}
+
+
 @app.post("/sessions/{sid}/messages")
 async def post_message(sid: str, req: MessageReq):
     """메시지 전송 → SSE 스트림 (token_chunk + done)."""
@@ -231,6 +247,42 @@ async def post_message(sid: str, req: MessageReq):
             queue.put_nowait(ev)
         except Exception:
             pass
+
+    # ── 위험 도구 승인 콜백: SSE로 알림 + token 기반 future로 응답 대기 ──
+    loop = asyncio.get_event_loop()
+
+    async def approval_cb(tool_name: str, tool_args: dict) -> bool:
+        import secrets
+
+        token = secrets.token_urlsafe(8)
+        fut: asyncio.Future = loop.create_future()
+        _pending_approvals[token] = fut
+        try:
+            queue.put_nowait({
+                "type": "approval_required",
+                "data": {
+                    "token": token,
+                    "tool": tool_name,
+                    "args": tool_args,
+                    "timeout": 60,
+                },
+            })
+            try:
+                return await asyncio.wait_for(fut, timeout=60)
+            except asyncio.TimeoutError:
+                return False
+        finally:
+            _pending_approvals.pop(token, None)
+
+    target_agent_name = req.agent or sess.agent
+    try:
+        target_agent = orch.get_agent(target_agent_name)
+    except Exception:
+        target_agent = None
+    saved_cb = None
+    if target_agent is not None:
+        saved_cb = target_agent.approval_callback
+        target_agent.approval_callback = approval_cb
 
     # Normalize images: data URLs → strip header, paths → kept as-is
     images_norm: list[str] = []
@@ -277,6 +329,9 @@ async def post_message(sid: str, req: MessageReq):
         except Exception as e:
             await queue.put({"type": "error", "data": {"message": str(e)}})
         finally:
+            # restore previous approval callback
+            if target_agent is not None:
+                target_agent.approval_callback = saved_cb
             await queue.put({"type": "done"})
 
     async def sse_gen():

@@ -34,6 +34,12 @@ export default function App() {
   const [skillNames, setSkillNames] = useState<string[]>([]);
   const [activeSkill, setActiveSkill] = useState<string>("");
   const [pendingImages, setPendingImages] = useState<string[]>([]);
+  const [pendingApproval, setPendingApproval] = useState<{
+    token: string;
+    tool: string;
+    args: Record<string, any>;
+    timeout: number;
+  } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -142,6 +148,9 @@ export default function App() {
           onToolCall: (d) => {
             setTools((tt) => [...tt, `🔧 ${d?.name ?? "?"}`]);
           },
+          onApproval: (d) => {
+            setPendingApproval(d);
+          },
           onFinal: (full) => {
             buf = full;
             setStreamBuf(full);
@@ -229,6 +238,17 @@ export default function App() {
     });
   }
 
+  async function respondApproval(approved: boolean) {
+    if (!pendingApproval) return;
+    try {
+      await api.resolveApproval(pendingApproval.token, approved);
+    } catch (e) {
+      console.error("approval 응답 실패:", e);
+    } finally {
+      setPendingApproval(null);
+    }
+  }
+
   async function captureScreen() {
     try {
       const r = await api.takeScreenshot();
@@ -265,6 +285,36 @@ export default function App() {
 
   return (
     <div className="app">
+      {pendingApproval && (
+        <div className="approval-overlay">
+          <div className="approval-dialog">
+            <div className="approval-title">위험 도구 실행 승인 필요</div>
+            <div className="approval-tool">
+              <code>{pendingApproval.tool}</code>
+            </div>
+            <pre className="approval-args">
+              {JSON.stringify(pendingApproval.args, null, 2)}
+            </pre>
+            <div className="approval-hint">
+              {pendingApproval.timeout}초 내 응답하지 않으면 자동 거부됩니다.
+            </div>
+            <div className="approval-actions">
+              <button
+                className="approval-deny"
+                onClick={() => respondApproval(false)}
+              >
+                거부
+              </button>
+              <button
+                className="approval-approve"
+                onClick={() => respondApproval(true)}
+              >
+                승인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <aside className="sidebar">
         <div className="sidebar-head">
           <span className="brand">Raphael</span>

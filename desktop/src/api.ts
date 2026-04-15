@@ -427,6 +427,12 @@ export const api = {
   takeScreenshot: () =>
     jpost<{ data_url: string; size: number }>("/screenshot", {}),
 
+  resolveApproval: (token: string, approved: boolean) =>
+    jpost<{ ok: boolean; token: string; approved: boolean }>(
+      `/approvals/${encodeURIComponent(token)}`,
+      { approved },
+    ),
+
   // SSE 메시지 전송 — onChunk(token), onFinal(text), onDone()
   async sendMessage(
     sid: string,
@@ -438,6 +444,12 @@ export const api = {
       onError?: (msg: string) => void;
       onDone?: () => void;
       onToolCall?: (data: any) => void;
+      onApproval?: (data: {
+        token: string;
+        tool: string;
+        args: Record<string, any>;
+        timeout: number;
+      }) => void;
     },
     images: string[] = [],
     skill: string | undefined = undefined,
@@ -470,6 +482,9 @@ export const api = {
               break;
             case "tool_call":
               handlers.onToolCall?.(ev.data);
+              break;
+            case "approval_required":
+              handlers.onApproval?.(ev.data);
               break;
             case "final":
               handlers.onFinal?.(ev.data?.text ?? "");
