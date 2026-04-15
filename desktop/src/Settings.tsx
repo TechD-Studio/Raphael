@@ -9,7 +9,7 @@ import {
   type RoutingRule,
 } from "./api";
 
-type Tab = "agents" | "models" | "routing" | "server";
+type Tab = "agents" | "models" | "routing" | "rag" | "server";
 
 export default function Settings({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("agents");
@@ -41,6 +41,12 @@ export default function Settings({ onBack }: { onBack: () => void }) {
             라우팅
           </button>
           <button
+            className={tab === "rag" ? "active" : ""}
+            onClick={() => setTab("rag")}
+          >
+            RAG
+          </button>
+          <button
             className={tab === "server" ? "active" : ""}
             onClick={() => setTab("server")}
           >
@@ -52,6 +58,7 @@ export default function Settings({ onBack }: { onBack: () => void }) {
         {tab === "agents" && <AgentsPanel />}
         {tab === "models" && <ModelsPanel />}
         {tab === "routing" && <RoutingPanel />}
+        {tab === "rag" && <RagPanel />}
         {tab === "server" && <ServerPanel />}
       </main>
     </div>
@@ -665,6 +672,143 @@ function RoutingPanel() {
         <button onClick={addRule}>+ 규칙 추가</button>
         <button className="primary" onClick={save} disabled={saving}>
           {saving ? "저장 중..." : "저장"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RagPanel() {
+  const [status, setStatus] = useState<{
+    vault_path: string;
+    doc_count: number;
+    embedding_model: string;
+    chroma_db_path: string;
+    error?: string;
+  } | null>(null);
+  const [vault, setVault] = useState("");
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    try {
+      const s = await api.ragStatus();
+      setStatus(s);
+      setVault(s.vault_path || "");
+      setErr("");
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function saveVault() {
+    setBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      await api.setRagVault(vault);
+      setMsg("볼트 경로 저장됨.");
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sync() {
+    setBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      const r = await api.ragSync();
+      setMsg(
+        `sync 완료: +${r.added} new, ~${r.updated} updated, -${r.deleted} deleted, ${r.unchanged} unchanged`,
+      );
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reindex() {
+    if (!confirm("전체 재인덱싱 (시간 소요). 계속?")) return;
+    setBusy(true);
+    setErr("");
+    setMsg("");
+    try {
+      const r = await api.ragReindex();
+      setMsg(`${r.indexed}개 청크 인덱싱됨.`);
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="agent-editor">
+      <h3>Obsidian RAG</h3>
+      <p className="muted">
+        옵시디언 볼트의 마크다운 노트를 ChromaDB에 인덱싱하여 research 에이전트가
+        참조합니다.
+      </p>
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="ok-msg">{msg}</div>}
+      {status && (
+        <div
+          style={{
+            background: "#f9fafb",
+            border: "1px solid #e7e9ef",
+            borderRadius: 6,
+            padding: 10,
+            marginBottom: 12,
+            fontSize: 13,
+          }}
+        >
+          <div>
+            <b>인덱싱된 청크:</b> {status.doc_count.toLocaleString()}
+          </div>
+          <div>
+            <b>임베딩 모델:</b>{" "}
+            <code>{status.embedding_model || "(미지정)"}</code>
+          </div>
+          <div>
+            <b>ChromaDB 경로:</b>{" "}
+            <code style={{ fontSize: 11 }}>{status.chroma_db_path}</code>
+          </div>
+          {status.error && (
+            <div className="err" style={{ marginTop: 6 }}>
+              {status.error}
+            </div>
+          )}
+        </div>
+      )}
+      <label>
+        볼트 경로
+        <input
+          value={vault}
+          onChange={(e) => setVault(e.target.value)}
+          placeholder="예: /Users/dh/Documents/Obsidian Vault"
+        />
+      </label>
+      <div className="row">
+        <button className="primary" onClick={saveVault} disabled={busy}>
+          경로 저장
+        </button>
+        <button onClick={sync} disabled={busy}>
+          {busy ? "진행 중..." : "Sync (증분)"}
+        </button>
+        <button onClick={reindex} disabled={busy}>
+          전체 재인덱싱
         </button>
       </div>
     </div>

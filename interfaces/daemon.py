@@ -543,6 +543,78 @@ def get_ab_result(name: str):
         raise HTTPException(500, f"parse error: {e}")
 
 
+@app.get("/rag/status")
+def rag_status():
+    from config.settings import get_settings
+
+    s = get_settings()
+    mem = s.get("memory") or {}
+    vault = mem.get("obsidian_vault", "")
+    try:
+        from memory.rag import RAGManager
+
+        orch = _init_runtime()
+        rag = RAGManager(orch.router)
+        return {
+            "vault_path": vault,
+            "doc_count": rag.collection.count(),
+            "embedding_model": mem.get("embedding_model", ""),
+            "chroma_db_path": mem.get("chroma_db_path", ""),
+        }
+    except Exception as e:
+        return {
+            "vault_path": vault,
+            "doc_count": 0,
+            "embedding_model": mem.get("embedding_model", ""),
+            "chroma_db_path": mem.get("chroma_db_path", ""),
+            "error": str(e),
+        }
+
+
+class RagVaultReq(BaseModel):
+    vault_path: str
+
+
+@app.post("/rag/vault")
+def set_rag_vault(req: RagVaultReq):
+    from config.settings import save_local_settings
+
+    if not req.vault_path.strip():
+        raise HTTPException(400, "vault_path required")
+    save_local_settings({"memory": {"obsidian_vault": req.vault_path.strip()}})
+    return {"ok": True, "vault_path": req.vault_path}
+
+
+@app.post("/rag/sync")
+async def rag_sync():
+    try:
+        from memory.rag import RAGManager
+    except Exception as e:
+        raise HTTPException(500, f"RAG 사용 불가: {e}")
+    orch = _init_runtime()
+    rag = RAGManager(orch.router)
+    try:
+        stats = await rag.sync_vault()
+        return stats
+    except Exception as e:
+        raise HTTPException(500, f"sync 실패: {e}")
+
+
+@app.post("/rag/reindex")
+async def rag_reindex():
+    try:
+        from memory.rag import RAGManager
+    except Exception as e:
+        raise HTTPException(500, f"RAG 사용 불가: {e}")
+    orch = _init_runtime()
+    rag = RAGManager(orch.router)
+    try:
+        n = await rag.index_vault(force=True)
+        return {"indexed": n}
+    except Exception as e:
+        raise HTTPException(500, f"reindex 실패: {e}")
+
+
 @app.get("/settings/routing")
 def get_routing():
     from core.router_strategy import load_config

@@ -240,6 +240,23 @@ export const api = {
     return r.json();
   },
 
+  ragStatus: () =>
+    jget<{
+      vault_path: string;
+      doc_count: number;
+      embedding_model: string;
+      chroma_db_path: string;
+      error?: string;
+    }>("/rag/status"),
+  setRagVault: (vault_path: string) =>
+    jpost<{ ok: boolean; vault_path: string }>("/rag/vault", { vault_path }),
+  ragSync: () =>
+    jpost<{ added: number; updated: number; deleted: number; unchanged: number }>(
+      "/rag/sync",
+      {},
+    ),
+  ragReindex: () => jpost<{ indexed: number }>("/rag/reindex", {}),
+
   routingSettings: () => jget<RoutingConfig>("/settings/routing"),
   saveRoutingSettings: (payload: RoutingConfig) =>
     jpost<{ ok: boolean; strategy: string; rules_count: number }>(
