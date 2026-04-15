@@ -54,10 +54,16 @@ function AgentsPanel() {
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState<string>("");
+  const [recs, setRecs] = useState<{ name: string; reason: string }[]>([]);
 
   async function refresh() {
     try {
       setAgents(await api.agents());
+      try {
+        setRecs(await api.agentRecommendations(3));
+      } catch {
+        setRecs([]);
+      }
     } catch (e: any) {
       setErr(e.message);
     }
@@ -66,6 +72,15 @@ function AgentsPanel() {
   useEffect(() => {
     refresh();
   }, []);
+
+  async function enableRec(name: string) {
+    try {
+      await api.toggleAgent(name, true);
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
 
   async function toggle(name: string, active: boolean) {
     try {
@@ -111,6 +126,20 @@ function AgentsPanel() {
         </button>
       </div>
       {err && <div className="err">{err}</div>}
+      {recs.length > 0 && (
+        <div className="rec-box">
+          <div className="rec-title">추천 (사용 이력 기반)</div>
+          {recs.map((r) => (
+            <div key={r.name} className="rec-item">
+              <div>
+                <code>{r.name}</code>{" "}
+                <span className="muted">{r.reason}</span>
+              </div>
+              <button onClick={() => enableRec(r.name)}>활성화</button>
+            </div>
+          ))}
+        </div>
+      )}
       <table className="agent-table">
         <thead>
           <tr>

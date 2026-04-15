@@ -36,6 +36,7 @@ from core.agent_definitions import (
     AgentDefinition,
     install_defaults_if_empty, list_definitions, load_active_agents,
     get_definition, save_definition, delete_definition, set_enabled,
+    get_recommendations,
     GenericAgent,
 )
 from tools.tool_registry import create_default_registry
@@ -227,6 +228,12 @@ def list_agents():
          "model": d.model, "tools": d.tools or "ALL"}
         for d in list_definitions()
     ]
+
+
+@app.get("/agents/recommendations")
+def agent_recommendations(limit: int = 3):
+    recs = get_recommendations(load_active_agents(), limit=limit)
+    return [{"name": n, "reason": r} for n, r in recs]
 
 
 @app.get("/agents/{name}")

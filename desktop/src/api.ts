@@ -103,6 +103,10 @@ export const api = {
     if (!r.ok) throw new Error(`${r.status}`);
   },
   agents: () => jget<AgentInfo[]>("/agents"),
+  agentRecommendations: (limit = 3) =>
+    jget<{ name: string; reason: string }[]>(
+      `/agents/recommendations?limit=${limit}`,
+    ),
   agent: (name: string) => jget<AgentDetail>(`/agents/${encodeURIComponent(name)}`),
   upsertAgent: (payload: AgentUpsert) => jpost<{ ok: boolean; name: string }>("/agents", payload),
   deleteAgent: async (name: string) => {
