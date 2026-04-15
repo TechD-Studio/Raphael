@@ -145,18 +145,23 @@ jobs:
             DARWIN_SIG="$(get_sig "${DARWIN_TAR}.sig" || true)"
           fi
 
-          # Windows x64 MSI updater archive — tauri generates Raphael_<ver>_x64_en-US.msi.zip
+          # Windows x64 — prefer NSIS .exe (auto-update friendly), fallback to MSI
+          # Tauri v2 attaches .sig directly to installer artifacts; we may also see
+          # .nsis.zip / .msi.zip updater bundles depending on config
           WIN_URL=""
           WIN_SIG=""
-          WIN_ZIP="Raphael_${VERSION}_x64_en-US.msi.zip"
-          WIN_NSIS_ZIP="Raphael_${VERSION}_x64-setup.nsis.zip"
-          if grep -qFx "${WIN_ZIP}" /tmp/assets.txt; then
-            WIN_URL="https://github.com/${REPO}/releases/download/${TAG}/${WIN_ZIP}"
-            WIN_SIG="$(get_sig "${WIN_ZIP}.sig" || true)"
-          elif grep -qFx "${WIN_NSIS_ZIP}" /tmp/assets.txt; then
-            WIN_URL="https://github.com/${REPO}/releases/download/${TAG}/${WIN_NSIS_ZIP}"
-            WIN_SIG="$(get_sig "${WIN_NSIS_ZIP}.sig" || true)"
-          fi
+          for cand in \
+            "Raphael_${VERSION}_x64-setup.nsis.zip" \
+            "Raphael_${VERSION}_x64_en-US.msi.zip" \
+            "Raphael_${VERSION}_x64-setup.exe" \
+            "Raphael_${VERSION}_x64_en-US.msi"; do
+            if grep -qFx "${cand}" /tmp/assets.txt && grep -qFx "${cand}.sig" /tmp/assets.txt; then
+              WIN_URL="https://github.com/${REPO}/releases/download/${TAG}/${cand}"
+              WIN_SIG="$(get_sig "${cand}.sig" || true)"
+              echo "selected windows artifact: ${cand}"
+              break
+            fi
+          done
 
           DARWIN_URL="https://github.com/${REPO}/releases/download/${TAG}/${DARWIN_TAR}"
 
