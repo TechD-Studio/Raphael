@@ -5,9 +5,11 @@ import {
   type AgentInfo,
   type AgentUpsert,
   type ModelsInfo,
+  type RoutingConfig,
+  type RoutingRule,
 } from "./api";
 
-type Tab = "agents" | "models" | "server";
+type Tab = "agents" | "models" | "routing" | "server";
 
 export default function Settings({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("agents");
@@ -33,6 +35,12 @@ export default function Settings({ onBack }: { onBack: () => void }) {
             모델
           </button>
           <button
+            className={tab === "routing" ? "active" : ""}
+            onClick={() => setTab("routing")}
+          >
+            라우팅
+          </button>
+          <button
             className={tab === "server" ? "active" : ""}
             onClick={() => setTab("server")}
           >
@@ -43,6 +51,7 @@ export default function Settings({ onBack }: { onBack: () => void }) {
       <main className="settings-body">
         {tab === "agents" && <AgentsPanel />}
         {tab === "models" && <ModelsPanel />}
+        {tab === "routing" && <RoutingPanel />}
         {tab === "server" && <ServerPanel />}
       </main>
     </div>
@@ -394,6 +403,270 @@ function ModelsPanel() {
       <p className="muted">
         모델 추가는 <code>~/.raphael/settings.yaml</code> 에서 관리합니다.
       </p>
+    </div>
+  );
+}
+
+function RoutingPanel() {
+  const [cfg, setCfg] = useState<RoutingConfig>({ strategy: "manual", rules: [] });
+  const [loaded, setLoaded] = useState(false);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const [agents, setAgents] = useState<string[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [c, m, a] = await Promise.all([
+          api.routingSettings(),
+          api.models(),
+          api.agents(),
+        ]);
+        setCfg(c);
+        setModels(m.available);
+        setAgents(a.map((x) => x.name));
+      } catch (e: any) {
+        setErr(e.message);
+      } finally {
+        setLoaded(true);
+      }
+    })();
+  }, []);
+
+  function updateRule(i: number, patch: Partial<RoutingRule>) {
+    const rules = [...cfg.rules];
+    rules[i] = { ...rules[i], ...patch };
+    setCfg({ ...cfg, rules });
+  }
+
+  function addRule() {
+    setCfg({
+      ...cfg,
+      rules: [...cfg.rules, { note: "새 규칙" }],
+    });
+  }
+
+  function removeRule(i: number) {
+    const rules = cfg.rules.filter((_, idx) => idx !== i);
+    setCfg({ ...cfg, rules });
+  }
+
+  function moveRule(i: number, dir: -1 | 1) {
+    const j = i + dir;
+    if (j < 0 || j >= cfg.rules.length) return;
+    const rules = [...cfg.rules];
+    [rules[i], rules[j]] = [rules[j], rules[i]];
+    setCfg({ ...cfg, rules });
+  }
+
+  async function save() {
+    setSaving(true);
+    setErr("");
+    setMsg("");
+    try {
+      await api.saveRoutingSettings(cfg);
+      setMsg("저장 완료. 다음 요청부터 적용됩니다.");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!loaded) return <div className="muted">불러오는 중...</div>;
+
+  return (
+    <div>
+      <p className="muted">
+        상황별로 다른 모델/에이전트를 자동 선택합니다. 규칙은 위에서 아래로
+        매칭되며 첫 매치가 적용됩니다.
+      </p>
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="ok-msg">{msg}</div>}
+
+      <div className="row" style={{ marginBottom: 16 }}>
+        <label className="inline">
+          <input
+            type="radio"
+            name="strategy"
+            checked={cfg.strategy === "auto"}
+            onChange={() => setCfg({ ...cfg, strategy: "auto" })}
+          />
+          auto (규칙 기반 자동)
+        </label>
+        <label className="inline">
+          <input
+            type="radio"
+            name="strategy"
+            checked={cfg.strategy === "manual"}
+            onChange={() => setCfg({ ...cfg, strategy: "manual" })}
+          />
+          manual (고정 모델)
+        </label>
+      </div>
+
+      {cfg.rules.length === 0 && (
+        <div className="muted" style={{ marginBottom: 12 }}>
+          규칙이 없습니다.
+        </div>
+      )}
+
+      {cfg.rules.map((r, i) => (
+        <div key={i} className="rule-card">
+          <div className="rule-head">
+            <span className="muted">#{i + 1}</span>
+            <input
+              className="rule-note"
+              placeholder="설명 (선택)"
+              value={r.note || ""}
+              onChange={(e) => updateRule(i, { note: e.target.value })}
+            />
+            <div style={{ flex: 1 }} />
+            <button onClick={() => moveRule(i, -1)} disabled={i === 0}>
+              ↑
+            </button>
+            <button
+              onClick={() => moveRule(i, 1)}
+              disabled={i === cfg.rules.length - 1}
+            >
+              ↓
+            </button>
+            <button onClick={() => removeRule(i)}>삭제</button>
+          </div>
+          <div className="rule-body">
+            <div className="rule-col">
+              <div className="rule-section-title">조건</div>
+              <label>
+                에이전트
+                <select
+                  value={r.agent || ""}
+                  onChange={(e) =>
+                    updateRule(i, { agent: e.target.value || undefined })
+                  }
+                >
+                  <option value="">(무관)</option>
+                  {agents.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                최소 메시지 수
+                <input
+                  type="number"
+                  value={r.min_messages ?? ""}
+                  onChange={(e) =>
+                    updateRule(i, {
+                      min_messages: e.target.value
+                        ? parseInt(e.target.value)
+                        : undefined,
+                    })
+                  }
+                  placeholder="예: 5"
+                />
+              </label>
+              <label>
+                토큰 추정치 &gt; (gt)
+                <input
+                  type="number"
+                  value={r.token_estimate_gt ?? ""}
+                  onChange={(e) =>
+                    updateRule(i, {
+                      token_estimate_gt: e.target.value
+                        ? parseInt(e.target.value)
+                        : undefined,
+                    })
+                  }
+                  placeholder="예: 1000"
+                />
+              </label>
+              <label>
+                토큰 추정치 &lt; (lt)
+                <input
+                  type="number"
+                  value={r.token_estimate_lt ?? ""}
+                  onChange={(e) =>
+                    updateRule(i, {
+                      token_estimate_lt: e.target.value
+                        ? parseInt(e.target.value)
+                        : undefined,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                포함 키워드 (쉼표 구분)
+                <input
+                  value={(r.contains_any || []).join(", ")}
+                  onChange={(e) =>
+                    updateRule(i, {
+                      contains_any: e.target.value
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder="예: 코드, 파일, 디버그"
+                />
+              </label>
+              <label className="inline">
+                <input
+                  type="checkbox"
+                  checked={!!r.default}
+                  onChange={(e) => updateRule(i, { default: e.target.checked })}
+                />
+                기본 규칙 (다른 규칙 매치 실패 시)
+              </label>
+            </div>
+            <div className="rule-col">
+              <div className="rule-section-title">결과</div>
+              <label>
+                선호 모델
+                <select
+                  value={r.prefer_model || ""}
+                  onChange={(e) =>
+                    updateRule(i, { prefer_model: e.target.value || undefined })
+                  }
+                >
+                  <option value="">(변경 없음)</option>
+                  {models.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                선호 에이전트
+                <select
+                  value={r.prefer_agent || ""}
+                  onChange={(e) =>
+                    updateRule(i, { prefer_agent: e.target.value || undefined })
+                  }
+                >
+                  <option value="">(변경 없음)</option>
+                  {agents.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      <div className="row">
+        <button onClick={addRule}>+ 규칙 추가</button>
+        <button className="primary" onClick={save} disabled={saving}>
+          {saving ? "저장 중..." : "저장"}
+        </button>
+      </div>
     </div>
   );
 }

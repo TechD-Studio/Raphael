@@ -78,6 +78,23 @@ export interface AbResultDetail {
   results: AbRunResult[];
 }
 
+export interface RoutingRule {
+  agent?: string;
+  min_messages?: number;
+  token_estimate_gt?: number;
+  token_estimate_lt?: number;
+  contains_any?: string[];
+  default?: boolean;
+  prefer_model?: string;
+  prefer_agent?: string;
+  note?: string;
+}
+
+export interface RoutingConfig {
+  strategy: "auto" | "manual";
+  rules: RoutingRule[];
+}
+
 export interface FailureSummary {
   file: string;
   agent: string;
@@ -166,6 +183,13 @@ export const api = {
     if (!r.ok) throw new Error(`${r.status}`);
     return r.json();
   },
+
+  routingSettings: () => jget<RoutingConfig>("/settings/routing"),
+  saveRoutingSettings: (payload: RoutingConfig) =>
+    jpost<{ ok: boolean; strategy: string; rules_count: number }>(
+      "/settings/routing",
+      payload,
+    ),
 
   serverSettings: () =>
     jget<{ host: string; port: number; timeout: number }>("/settings/server"),

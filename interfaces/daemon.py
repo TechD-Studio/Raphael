@@ -423,6 +423,31 @@ def get_ab_result(name: str):
         raise HTTPException(500, f"parse error: {e}")
 
 
+@app.get("/settings/routing")
+def get_routing():
+    from core.router_strategy import load_config
+
+    return load_config()
+
+
+class RoutingReq(BaseModel):
+    strategy: str
+    rules: list[dict] = []
+
+
+@app.post("/settings/routing")
+def save_routing(req: RoutingReq):
+    from core.router_strategy import save_config
+
+    if req.strategy not in ("auto", "manual"):
+        raise HTTPException(400, "strategy must be 'auto' or 'manual'")
+    save_config(strategy=req.strategy, rules=req.rules)
+    global router_inst, orch_inst
+    router_inst = None
+    orch_inst = None
+    return {"ok": True, "strategy": req.strategy, "rules_count": len(req.rules)}
+
+
 @app.get("/settings/server")
 def get_server_settings():
     from config.settings import get_settings
