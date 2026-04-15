@@ -56,28 +56,61 @@ fn toggle_main_window(app: &tauri::AppHandle) {
     }
 }
 
+fn install_panic_logger() {
+    let log_dir = dirs::data_local_dir()
+        .map(|p| p.join("Raphael"))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let _ = std::fs::create_dir_all(&log_dir);
+    let log_path = log_dir.join("crash.log");
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = format!(
+            "[{}] PANIC: {}\n",
+            chrono::Utc::now().to_rfc3339(),
+            info
+        );
+        eprintln!("{msg}");
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            use std::io::Write;
+            let _ = f.write_all(msg.as_bytes());
+        }
+    }));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let toggle_shortcut = Shortcut::new(
-        Some(Modifiers::SUPER | Modifiers::SHIFT),
-        Code::KeyR,
+    install_panic_logger();
+
+    #[cfg(target_os = "macos")]
+    let shortcut_mods = Modifiers::SUPER | Modifiers::SHIFT;
+    #[cfg(not(target_os = "macos"))]
+    let shortcut_mods = Modifiers::CONTROL | Modifiers::ALT;
+
+    let toggle_shortcut = Shortcut::new(Some(shortcut_mods), Code::KeyR);
+
+    let base_gs = tauri_plugin_global_shortcut::Builder::new().with_handler(
+        move |app, sc, ev| {
+            if sc == &toggle_shortcut && ev.state() == ShortcutState::Pressed {
+                toggle_main_window(app);
+            }
+        },
     );
+    let gs_builder = match base_gs.with_shortcuts([toggle_shortcut]) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[raphael] shortcut register failed (continuing): {e}");
+            tauri_plugin_global_shortcut::Builder::new()
+        }
+    };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_shortcuts([toggle_shortcut])
-                .unwrap()
-                .with_handler(move |app, sc, ev| {
-                    if sc == &toggle_shortcut && ev.state() == ShortcutState::Pressed {
-                        toggle_main_window(app);
-                    }
-                })
-                .build(),
-        )
+        .plugin(gs_builder.build())
         .manage(DaemonState(Mutex::new(None)))
         .setup(|app| {
             // 1. Sidecar 시작
@@ -91,34 +124,41 @@ pub fn run() {
                 Err(e) => eprintln!("[raphael] daemon spawn failed: {e}"),
             }
 
-            // 2. Tray Icon
-            let show_item = MenuItem::with_id(app, "show", "Raphael 열기", true, None::<&str>)?;
-            let hide_item = MenuItem::with_id(app, "hide", "숨기기", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &hide_item, &quit_item])?;
-            TrayIconBuilder::with_id("main-tray")
-                .menu(&menu)
-                .show_menu_on_left_click(true)
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Raphael (Cmd+Shift+R)")
-                .on_menu_event(|app, ev| match ev.id.as_ref() {
-                    "show" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
+            // 2. Tray Icon (실패해도 앱은 계속)
+            if let Err(e) = (|| -> tauri::Result<()> {
+                let show_item =
+                    MenuItem::with_id(app, "show", "Raphael 열기", true, None::<&str>)?;
+                let hide_item = MenuItem::with_id(app, "hide", "숨기기", true, None::<&str>)?;
+                let quit_item = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show_item, &hide_item, &quit_item])?;
+                let mut builder = TrayIconBuilder::with_id("main-tray")
+                    .menu(&menu)
+                    .show_menu_on_left_click(true)
+                    .tooltip("Raphael")
+                    .on_menu_event(|app, ev| match ev.id.as_ref() {
+                        "show" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
                         }
-                    }
-                    "hide" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.hide();
+                        "hide" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.hide();
+                            }
                         }
-                    }
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .build(app)?;
+                        "quit" => app.exit(0),
+                        _ => {}
+                    });
+                if let Some(icon) = app.default_window_icon() {
+                    builder = builder.icon(icon.clone());
+                }
+                builder.build(app)?;
+                Ok(())
+            })() {
+                eprintln!("[raphael] tray setup failed (continuing): {e}");
+            }
 
-            // 3. 글로벌 단축키 등록 (플러그인 with_shortcuts에서 이미 등록됨)
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![daemon_url])
