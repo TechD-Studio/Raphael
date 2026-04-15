@@ -367,6 +367,9 @@ export const api = {
       payload,
     ),
 
+  takeScreenshot: () =>
+    jpost<{ data_url: string; size: number }>("/screenshot", {}),
+
   // SSE 메시지 전송 — onChunk(token), onFinal(text), onDone()
   async sendMessage(
     sid: string,
@@ -379,11 +382,12 @@ export const api = {
       onDone?: () => void;
       onToolCall?: (data: any) => void;
     },
+    images: string[] = [],
   ) {
     const r = await fetch(`${BASE}/sessions/${sid}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content, agent }),
+      body: JSON.stringify({ content, agent, images }),
     });
     if (!r.ok || !r.body) throw new Error(`${r.status}`);
     const reader = r.body.getReader();

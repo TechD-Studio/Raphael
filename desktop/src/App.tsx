@@ -31,7 +31,9 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [agentNames, setAgentNames] = useState<string[]>([]);
   const [targetAgent, setTargetAgent] = useState<string>("");
+  const [pendingImages, setPendingImages] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let alive = true;
@@ -107,28 +109,40 @@ export default function App() {
   }
 
   async function sendMessage() {
-    if (!input.trim() || streaming) return;
+    if ((!input.trim() && pendingImages.length === 0) || streaming) return;
     const text = input.trim();
+    const imgs = pendingImages;
     setInput("");
-    setMessages((m) => [...m, { role: "user", content: text }]);
+    setPendingImages([]);
+    const userContent =
+      imgs.length > 0
+        ? `${text}${text ? "\n\n" : ""}_(첨부 이미지 ${imgs.length}개)_`
+        : text;
+    setMessages((m) => [...m, { role: "user", content: userContent }]);
     setStreaming(true);
     setStreamBuf("");
     setTools([]);
     let buf = "";
     try {
-      await api.sendMessage(activeSid, text, targetAgent || undefined, {
-        onChunk: (t) => {
-          buf += t;
-          setStreamBuf(buf);
+      await api.sendMessage(
+        activeSid,
+        text,
+        targetAgent || undefined,
+        {
+          onChunk: (t) => {
+            buf += t;
+            setStreamBuf(buf);
+          },
+          onToolCall: (d) => {
+            setTools((tt) => [...tt, `🔧 ${d?.name ?? "?"}`]);
+          },
+          onFinal: (full) => {
+            buf = full;
+            setStreamBuf(full);
+          },
         },
-        onToolCall: (d) => {
-          setTools((tt) => [...tt, `🔧 ${d?.name ?? "?"}`]);
-        },
-        onFinal: (full) => {
-          buf = full;
-          setStreamBuf(full);
-        },
-      });
+        imgs,
+      );
       setMessages((m) => [...m, { role: "assistant", content: buf || "(빈 응답)" }]);
     } catch (e) {
       setMessages((m) => [...m, { role: "assistant", content: `⚠ 오류: ${e}` }]);
@@ -191,6 +205,29 @@ export default function App() {
       alert(`${r.indexed}개 메시지 인덱싱됨.`);
     } catch (e: any) {
       alert(`인덱싱 실패: ${e.message || e}`);
+    }
+  }
+
+  function attachFiles(files: FileList | null) {
+    if (!files) return;
+    Array.from(files).forEach((f) => {
+      if (!f.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setPendingImages((arr) => [...arr, reader.result as string]);
+        }
+      };
+      reader.readAsDataURL(f);
+    });
+  }
+
+  async function captureScreen() {
+    try {
+      const r = await api.takeScreenshot();
+      setPendingImages((arr) => [...arr, r.data_url]);
+    } catch (e: any) {
+      alert(`스크린샷 실패: ${e.message || e}`);
     }
   }
 
@@ -426,7 +463,53 @@ export default function App() {
             </div>
           )}
         </div>
+        {pendingImages.length > 0 && (
+          <div className="pending-images">
+            {pendingImages.map((img, i) => (
+              <div key={i} className="pending-image">
+                <img src={img} alt={`첨부 ${i + 1}`} />
+                <button
+                  onClick={() =>
+                    setPendingImages(pendingImages.filter((_, idx) => idx !== i))
+                  }
+                  title="제거"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="composer">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => {
+              attachFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <div className="composer-attach">
+            <button
+              className="tool-btn"
+              onClick={() => fileInputRef.current?.click()}
+              title="이미지 첨부"
+              disabled={streaming}
+            >
+              📎
+            </button>
+            <button
+              className="tool-btn"
+              onClick={captureScreen}
+              title="화면 캡처"
+              disabled={streaming}
+            >
+              🖥
+            </button>
+          </div>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -440,7 +523,14 @@ export default function App() {
             disabled={!healthy || streaming}
             rows={3}
           />
-          <button onClick={sendMessage} disabled={!healthy || streaming || !input.trim()}>
+          <button
+            onClick={sendMessage}
+            disabled={
+              !healthy ||
+              streaming ||
+              (!input.trim() && pendingImages.length === 0)
+            }
+          >
             {streaming ? "전송 중..." : "전송"}
           </button>
         </div>

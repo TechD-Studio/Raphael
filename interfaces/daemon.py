@@ -211,6 +211,7 @@ def delete_session(sid: str):
 class MessageReq(BaseModel):
     content: str
     agent: str | None = None
+    images: list[str] = []  # data URLs (data:image/png;base64,...) or absolute file paths
 
 
 @app.post("/sessions/{sid}/messages")
@@ -230,16 +231,32 @@ async def post_message(sid: str, req: MessageReq):
         except Exception:
             pass
 
+    # Normalize images: data URLs → strip header, paths → kept as-is
+    images_norm: list[str] = []
+    for img in req.images or []:
+        if not img:
+            continue
+        if img.startswith("data:"):
+            # data:image/png;base64,XXXX → XXXX (ModelRouter accepts base64 string)
+            if "," in img:
+                images_norm.append(img.split(",", 1)[1])
+            else:
+                images_norm.append(img)
+        else:
+            images_norm.append(img)
+
     async def runner():
         try:
-            response = await orch.route(
-                req.content,
+            route_kwargs = dict(
                 agent_name=req.agent or sess.agent,
                 source=InputSource.WEB_UI,
                 session_id=sid,
                 stream_tokens=True,
                 activity_callback=on_event,
             )
+            if images_norm:
+                route_kwargs["images"] = images_norm
+            response = await orch.route(req.content, **route_kwargs)
             await queue.put({"type": "final", "data": {"text": response}})
         except Exception as e:
             await queue.put({"type": "error", "data": {"message": str(e)}})
@@ -638,6 +655,59 @@ def save_routing(req: RoutingReq):
     router_inst = None
     orch_inst = None
     return {"ok": True, "strategy": req.strategy, "rules_count": len(req.rules)}
+
+
+@app.post("/screenshot")
+def take_screenshot():
+    """OS 스크린샷을 캡처해 base64 PNG로 반환."""
+    import base64
+    import platform
+    import subprocess
+    import tempfile
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    tmp.close()
+    try:
+        sys_name = platform.system()
+        if sys_name == "Darwin":
+            r = subprocess.run(["screencapture", "-x", tmp.name], capture_output=True)
+        elif sys_name == "Windows":
+            # PowerShell .NET fallback
+            ps = (
+                "Add-Type -AssemblyName System.Windows.Forms;"
+                "$b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds;"
+                "$bmp=New-Object System.Drawing.Bitmap($b.Width,$b.Height);"
+                "$g=[System.Drawing.Graphics]::FromImage($bmp);"
+                "$g.CopyFromScreen(0,0,0,0,$bmp.Size);"
+                f"$bmp.Save('{tmp.name}',[System.Drawing.Imaging.ImageFormat]::Png)"
+            )
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps], capture_output=True
+            )
+        else:
+            for cmd in (
+                ["scrot", tmp.name],
+                ["gnome-screenshot", "-f", tmp.name],
+                ["import", "-window", "root", tmp.name],
+            ):
+                try:
+                    r = subprocess.run(cmd, capture_output=True)
+                    if r.returncode == 0:
+                        break
+                except FileNotFoundError:
+                    continue
+            else:
+                raise HTTPException(500, "no screenshot tool found")
+        if r.returncode != 0:
+            raise HTTPException(500, f"screenshot failed: {r.stderr.decode(errors='replace')}")
+        data = Path(tmp.name).read_bytes()
+        b64 = base64.b64encode(data).decode("ascii")
+        return {"data_url": f"data:image/png;base64,{b64}", "size": len(data)}
+    finally:
+        try:
+            Path(tmp.name).unlink()
+        except Exception:
+            pass
 
 
 @app.get("/mcp/servers")
