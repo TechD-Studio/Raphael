@@ -53,6 +53,31 @@ export interface ModelsInfo {
   available: string[];
 }
 
+export interface AbResultSummary {
+  file: string;
+  scenario_id: number | null;
+  title: string;
+  mtime: number;
+  models: string[];
+  success_count: number;
+  total: number;
+}
+
+export interface AbRunResult {
+  model: string;
+  success: boolean;
+  duration?: number;
+  response_len?: number;
+  final_model?: string;
+  error?: string;
+}
+
+export interface AbResultDetail {
+  scenario_id: number;
+  title: string;
+  results: AbRunResult[];
+}
+
 async function jget<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
@@ -89,6 +114,10 @@ export const api = {
     jpost<{ name: string; active: boolean }>(`/agents/${encodeURIComponent(name)}/toggle`, { active }),
   models: () => jget<ModelsInfo>("/models"),
   useModel: (key: string) => jpost<{ current: string }>("/models/use", { key }),
+
+  abResults: () => jget<AbResultSummary[]>("/ab-results"),
+  abResult: (name: string) =>
+    jget<AbResultDetail>(`/ab-results/${encodeURIComponent(name)}`),
 
   serverSettings: () =>
     jget<{ host: string; port: number; timeout: number }>("/settings/server"),

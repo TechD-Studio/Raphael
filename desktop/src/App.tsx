@@ -4,11 +4,12 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { api, newSessionId, type Message, type SessionMeta, type ModelsInfo } from "./api";
 import Settings from "./Settings";
+import Dashboard from "./Dashboard";
 import "highlight.js/styles/github-dark.css";
 import "./App.css";
 
 export default function App() {
-  const [view, setView] = useState<"chat" | "settings">("chat");
+  const [view, setView] = useState<"chat" | "settings" | "dashboard">("chat");
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [activeSid, setActiveSid] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -133,6 +134,9 @@ export default function App() {
   if (view === "settings") {
     return <Settings onBack={() => setView("chat")} />;
   }
+  if (view === "dashboard") {
+    return <Dashboard onBack={() => setView("chat")} />;
+  }
 
   return (
     <div className="app">
@@ -140,6 +144,13 @@ export default function App() {
         <div className="sidebar-head">
           <span className="brand">🪶 Raphael</span>
           <button onClick={startNewSession}>＋</button>
+          <button
+            title="A/B 대시보드"
+            onClick={() => setView("dashboard")}
+            style={{ marginLeft: 4 }}
+          >
+            📊
+          </button>
           <button
             title="설정"
             onClick={() => setView("settings")}
