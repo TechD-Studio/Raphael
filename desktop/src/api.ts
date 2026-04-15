@@ -46,6 +46,25 @@ export interface AgentDetail {
   active: boolean;
 }
 
+export interface SkillInfo {
+  name: string;
+  description: string;
+  agent: string;
+  tags: string[];
+}
+
+export interface SkillDetail extends SkillInfo {
+  prompt: string;
+}
+
+export interface SkillUpsert {
+  name: string;
+  description?: string;
+  prompt: string;
+  agent?: string;
+  tags?: string[];
+}
+
 export interface AgentUpsert {
   name: string;
   description?: string;
@@ -236,6 +255,20 @@ export const api = {
   },
   clearFailures: async () => {
     const r = await fetch(`${BASE}/failures`, { method: "DELETE" });
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  },
+
+  skills: () => jget<SkillInfo[]>("/skills"),
+  skill: (name: string) =>
+    jget<SkillDetail>(`/skills/${encodeURIComponent(name)}`),
+  upsertSkill: (payload: SkillUpsert) =>
+    jpost<{ ok: boolean; name: string }>("/skills", payload),
+  deleteSkill: async (name: string) => {
+    const r = await fetch(
+      `${BASE}/skills/${encodeURIComponent(name)}`,
+      { method: "DELETE" },
+    );
     if (!r.ok) throw new Error(`${r.status}`);
     return r.json();
   },

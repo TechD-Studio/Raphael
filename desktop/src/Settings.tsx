@@ -7,10 +7,14 @@ import {
   type ModelsInfo,
   type RoutingConfig,
   type RoutingRule,
+  type SkillDetail,
+  type SkillInfo,
+  type SkillUpsert,
 } from "./api";
 
 type Tab =
   | "agents"
+  | "skills"
   | "models"
   | "routing"
   | "rag"
@@ -33,6 +37,12 @@ export default function Settings({ onBack }: { onBack: () => void }) {
             onClick={() => setTab("agents")}
           >
             에이전트
+          </button>
+          <button
+            className={tab === "skills" ? "active" : ""}
+            onClick={() => setTab("skills")}
+          >
+            스킬
           </button>
           <button
             className={tab === "models" ? "active" : ""}
@@ -68,6 +78,7 @@ export default function Settings({ onBack }: { onBack: () => void }) {
       </header>
       <main className="settings-body">
         {tab === "agents" && <AgentsPanel />}
+        {tab === "skills" && <SkillsPanel />}
         {tab === "models" && <ModelsPanel />}
         {tab === "routing" && <RoutingPanel />}
         {tab === "rag" && <RagPanel />}
@@ -423,6 +434,226 @@ function ModelsPanel() {
       <p className="muted">
         모델 추가는 <code>~/.raphael/settings.yaml</code> 에서 관리합니다.
       </p>
+    </div>
+  );
+}
+
+function SkillsPanel() {
+  const [list, setList] = useState<SkillInfo[]>([]);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function refresh() {
+    try {
+      setList(await api.skills());
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function remove(name: string) {
+    if (!confirm(`${name} 삭제?`)) return;
+    try {
+      await api.deleteSkill(name);
+      await refresh();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  if (editing !== null || creating) {
+    return (
+      <SkillEditor
+        name={editing}
+        onSaved={async () => {
+          setEditing(null);
+          setCreating(false);
+          await refresh();
+        }}
+        onCancel={() => {
+          setEditing(null);
+          setCreating(false);
+        }}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <div className="panel-toolbar">
+        <button className="primary" onClick={() => setCreating(true)}>
+          + 새 스킬
+        </button>
+      </div>
+      {err && <div className="err">{err}</div>}
+      <p className="muted">
+        스킬은 <code>ask --skill X</code> 또는 채팅 입력 시 선택하여
+        system_prompt에 임시 주입하는 재사용 가능한 지시사항입니다.
+      </p>
+      <table className="agent-table">
+        <thead>
+          <tr>
+            <th>이름</th>
+            <th>설명</th>
+            <th>기본 에이전트</th>
+            <th>태그</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.length === 0 && (
+            <tr>
+              <td colSpan={5} className="muted">
+                스킬 없음
+              </td>
+            </tr>
+          )}
+          {list.map((s) => (
+            <tr key={s.name}>
+              <td>
+                <code>{s.name}</code>
+              </td>
+              <td>{s.description}</td>
+              <td>{s.agent || <span className="muted">(무관)</span>}</td>
+              <td style={{ fontSize: 11, color: "#6b7280" }}>
+                {s.tags.join(", ")}
+              </td>
+              <td className="actions">
+                <button onClick={() => setEditing(s.name)}>편집</button>
+                <button onClick={() => remove(s.name)}>삭제</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SkillEditor({
+  name,
+  onSaved,
+  onCancel,
+}: {
+  name: string | null;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const [form, setForm] = useState<SkillUpsert>({
+    name: "",
+    description: "",
+    prompt: "",
+    agent: "",
+    tags: [],
+  });
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const [agents, setAgents] = useState<string[]>([]);
+
+  useEffect(() => {
+    api.agents().then((a) => setAgents(a.map((x) => x.name))).catch(() => {});
+    if (name === null) return;
+    (async () => {
+      try {
+        const d: SkillDetail = await api.skill(name);
+        setForm({
+          name: d.name,
+          description: d.description,
+          prompt: d.prompt,
+          agent: d.agent,
+          tags: d.tags,
+        });
+      } catch (e: any) {
+        setErr(e.message);
+      }
+    })();
+  }, [name]);
+
+  async function save() {
+    setLoading(true);
+    setErr("");
+    try {
+      await api.upsertSkill(form);
+      onSaved();
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const isNew = name === null;
+  return (
+    <div className="agent-editor">
+      <h3>{isNew ? "새 스킬" : `${form.name} 편집`}</h3>
+      {err && <div className="err">{err}</div>}
+      <label>
+        이름
+        <input
+          value={form.name}
+          disabled={!isNew}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          placeholder="예: summarize-ko"
+        />
+      </label>
+      <label>
+        설명
+        <input
+          value={form.description || ""}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
+        />
+      </label>
+      <label>
+        기본 에이전트 <span className="muted">(선택 — 자동 적용 조건)</span>
+        <select
+          value={form.agent || ""}
+          onChange={(e) => setForm({ ...form, agent: e.target.value })}
+        >
+          <option value="">(무관)</option>
+          {agents.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        태그 (쉼표 구분)
+        <input
+          value={(form.tags || []).join(", ")}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              tags: e.target.value
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean),
+            })
+          }
+        />
+      </label>
+      <label>
+        프롬프트 본문
+        <textarea
+          value={form.prompt}
+          onChange={(e) => setForm({ ...form, prompt: e.target.value })}
+          rows={14}
+          placeholder="에이전트에 추가로 주입할 지시사항"
+        />
+      </label>
+      <div className="row">
+        <button className="primary" onClick={save} disabled={loading}>
+          {loading ? "저장 중..." : "저장"}
+        </button>
+        <button onClick={onCancel} disabled={loading}>
+          취소
+        </button>
+      </div>
     </div>
   );
 }

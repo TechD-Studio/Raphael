@@ -640,6 +640,70 @@ def save_routing(req: RoutingReq):
     return {"ok": True, "strategy": req.strategy, "rules_count": len(req.rules)}
 
 
+@app.get("/skills")
+def list_skills_api():
+    from core.skills import list_skills
+
+    return [
+        {
+            "name": s.name,
+            "description": s.description,
+            "agent": s.agent,
+            "tags": s.tags,
+        }
+        for s in list_skills()
+    ]
+
+
+@app.get("/skills/{name}")
+def get_skill_api(name: str):
+    from core.skills import get_skill
+
+    s = get_skill(name)
+    if not s:
+        raise HTTPException(404, "skill not found")
+    return {
+        "name": s.name,
+        "description": s.description,
+        "agent": s.agent,
+        "tags": s.tags,
+        "prompt": s.prompt,
+    }
+
+
+class SkillUpsertReq(BaseModel):
+    name: str
+    description: str = ""
+    prompt: str
+    agent: str = ""
+    tags: list[str] = []
+
+
+@app.post("/skills")
+def upsert_skill_api(req: SkillUpsertReq):
+    from core.skills import save_skill
+
+    if not req.name.strip():
+        raise HTTPException(400, "name required")
+    save_skill(
+        name=req.name.strip(),
+        description=req.description,
+        prompt=req.prompt,
+        agent=req.agent,
+        tags=req.tags,
+    )
+    return {"ok": True, "name": req.name}
+
+
+@app.delete("/skills/{name}")
+def delete_skill_api(name: str):
+    from core.skills import delete_skill
+
+    if not delete_skill(name):
+        raise HTTPException(404, "skill not found")
+    return {"deleted": True, "name": name}
+
+
 @app.get("/settings/allowed-paths")
 def get_allowed_paths_api():
     from config.settings import get_settings
