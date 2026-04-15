@@ -33,7 +33,9 @@ from core.model_router import ModelRouter
 from core.orchestrator import Orchestrator
 from core.session_store import Session, sessions_dir
 from core.agent_definitions import (
+    AgentDefinition,
     install_defaults_if_empty, list_definitions, load_active_agents,
+    get_definition, save_definition, delete_definition, set_enabled,
     GenericAgent,
 )
 from tools.tool_registry import create_default_registry
@@ -185,6 +187,81 @@ def list_agents():
          "model": d.model, "tools": d.tools or "ALL"}
         for d in list_definitions()
     ]
+
+
+@app.get("/agents/{name}")
+def get_agent(name: str):
+    d = get_definition(name)
+    if not d:
+        raise HTTPException(404, "agent not found")
+    active = load_active_agents()
+    return {
+        "name": d.name,
+        "description": d.description,
+        "model": d.model,
+        "tools": d.tools,
+        "system_prompt": d.system_prompt,
+        "default_enabled": d.default_enabled,
+        "active": d.name in active,
+    }
+
+
+class AgentUpsertReq(BaseModel):
+    name: str
+    description: str = ""
+    model: str | None = None
+    tools: list[str] = []
+    system_prompt: str = ""
+    default_enabled: bool = False
+    active: bool | None = None
+
+
+@app.post("/agents")
+def upsert_agent(req: AgentUpsertReq):
+    if not req.name.strip():
+        raise HTTPException(400, "name required")
+    d = AgentDefinition(
+        name=req.name.strip(),
+        description=req.description,
+        model=req.model,
+        tools=req.tools,
+        system_prompt=req.system_prompt,
+        default_enabled=req.default_enabled,
+    )
+    save_definition(d)
+    if req.active is not None:
+        set_enabled(d.name, req.active)
+    global orch_inst
+    orch_inst = None  # force re-init to pick up new persona
+    return {"ok": True, "name": d.name}
+
+
+@app.delete("/agents/{name}")
+def remove_agent(name: str):
+    if name == "main":
+        raise HTTPException(400, "cannot delete main")
+    ok = delete_definition(name)
+    if not ok:
+        raise HTTPException(404, "agent not found")
+    global orch_inst
+    orch_inst = None
+    return {"deleted": True, "name": name}
+
+
+class AgentToggleReq(BaseModel):
+    active: bool
+
+
+@app.post("/agents/{name}/toggle")
+def toggle_agent(name: str, req: AgentToggleReq):
+    if not get_definition(name):
+        raise HTTPException(404, "agent not found")
+    if name == "main" and not req.active:
+        raise HTTPException(400, "cannot disable main")
+    set_enabled(name, req.active)
+    global orch_inst
+    orch_inst = None
+    return {"name": name, "active": req.active}
 
 
 @app.get("/models")

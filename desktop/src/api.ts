@@ -28,6 +28,26 @@ export interface AgentInfo {
   tools: string | string[];
 }
 
+export interface AgentDetail {
+  name: string;
+  description: string;
+  model: string | null;
+  tools: string[];
+  system_prompt: string;
+  default_enabled: boolean;
+  active: boolean;
+}
+
+export interface AgentUpsert {
+  name: string;
+  description?: string;
+  model?: string | null;
+  tools?: string[];
+  system_prompt?: string;
+  default_enabled?: boolean;
+  active?: boolean;
+}
+
 export interface ModelsInfo {
   current: string;
   available: string[];
@@ -58,6 +78,15 @@ export const api = {
     if (!r.ok) throw new Error(`${r.status}`);
   },
   agents: () => jget<AgentInfo[]>("/agents"),
+  agent: (name: string) => jget<AgentDetail>(`/agents/${encodeURIComponent(name)}`),
+  upsertAgent: (payload: AgentUpsert) => jpost<{ ok: boolean; name: string }>("/agents", payload),
+  deleteAgent: async (name: string) => {
+    const r = await fetch(`${BASE}/agents/${encodeURIComponent(name)}`, { method: "DELETE" });
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    return r.json();
+  },
+  toggleAgent: (name: string, active: boolean) =>
+    jpost<{ name: string; active: boolean }>(`/agents/${encodeURIComponent(name)}/toggle`, { active }),
   models: () => jget<ModelsInfo>("/models"),
   useModel: (key: string) => jpost<{ current: string }>("/models/use", { key }),
 

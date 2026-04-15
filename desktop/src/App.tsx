@@ -3,10 +3,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { api, newSessionId, type Message, type SessionMeta, type ModelsInfo } from "./api";
+import Settings from "./Settings";
 import "highlight.js/styles/github-dark.css";
 import "./App.css";
 
 export default function App() {
+  const [view, setView] = useState<"chat" | "settings">("chat");
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [activeSid, setActiveSid] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -128,12 +130,23 @@ export default function App() {
     } catch {}
   }
 
+  if (view === "settings") {
+    return <Settings onBack={() => setView("chat")} />;
+  }
+
   return (
     <div className="app">
       <aside className="sidebar">
         <div className="sidebar-head">
           <span className="brand">🪶 Raphael</span>
           <button onClick={startNewSession}>＋</button>
+          <button
+            title="설정"
+            onClick={() => setView("settings")}
+            style={{ marginLeft: 4 }}
+          >
+            ⚙
+          </button>
         </div>
         <div className="sessions">
           {sessions.length === 0 && <div className="empty">세션 없음</div>}
