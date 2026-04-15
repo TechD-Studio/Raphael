@@ -259,6 +259,42 @@ export const api = {
     return r.json();
   },
 
+  mcpServers: () =>
+    jget<{ configured: any[]; runtime_tools: string[] }>("/mcp/servers"),
+  plugins: () =>
+    jget<{
+      tools: { name: string; value: string }[];
+      agents: { name: string; value: string }[];
+      error?: string;
+    }>("/plugins"),
+  healthPanel: () =>
+    jget<{
+      ok: boolean;
+      agents: string[];
+      models_available: string[];
+      current_model: string;
+      total_calls: number;
+      total_tokens: number;
+      per_model: Record<
+        string,
+        { calls: number; prompt: number; completion: number; total_ms: number }
+      >;
+    }>("/health-panel"),
+  feedbackStats: () =>
+    jget<{ total: number; positive: number; negative: number; neutral: number }>(
+      "/feedback/stats",
+    ),
+  systemUpdate: () =>
+    jpost<{
+      ok: boolean;
+      pull?: string;
+      pip?: string;
+      note?: string;
+      error?: string;
+      stage?: string;
+      output?: string;
+    }>("/system/update", {}),
+
   skills: () => jget<SkillInfo[]>("/skills"),
   skill: (name: string) =>
     jget<SkillDetail>(`/skills/${encodeURIComponent(name)}`),

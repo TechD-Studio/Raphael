@@ -351,6 +351,35 @@ body {
   margin-bottom: 12px;
   font-size: 13px;
 }
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.stat-card {
+  background: #f9fafb;
+  border: 1px solid #e7e9ef;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.stat-label {
+  font-size: 11px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.stat-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: #1c1d20;
+}
+.stat-sub {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
 .session-search {
   display: flex;
   gap: 4px;

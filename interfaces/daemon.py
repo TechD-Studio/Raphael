@@ -640,6 +640,110 @@ def save_routing(req: RoutingReq):
     return {"ok": True, "strategy": req.strategy, "rules_count": len(req.rules)}
 
 
+@app.get("/mcp/servers")
+def list_mcp_servers():
+    from config.settings import get_settings
+
+    s = get_settings()
+    servers = (s.get("mcp") or {}).get("servers") or []
+    # Try to get runtime-registered tools
+    runtime_tools: list[str] = []
+    try:
+        orch = _init_runtime()
+        for tool_name in orch._registry.tools.keys():
+            if tool_name.startswith("mcp_"):
+                runtime_tools.append(tool_name)
+    except Exception:
+        pass
+    return {
+        "configured": servers,
+        "runtime_tools": runtime_tools,
+    }
+
+
+@app.get("/plugins")
+def list_plugins():
+    try:
+        from importlib.metadata import entry_points
+
+        try:
+            tool_eps = list(entry_points(group="raphael.tools"))
+            agent_eps = list(entry_points(group="raphael.agents"))
+        except TypeError:  # py <3.10 fallback
+            eps = entry_points()
+            tool_eps = eps.get("raphael.tools", []) if hasattr(eps, "get") else []
+            agent_eps = eps.get("raphael.agents", []) if hasattr(eps, "get") else []
+        return {
+            "tools": [{"name": ep.name, "value": ep.value} for ep in tool_eps],
+            "agents": [{"name": ep.name, "value": ep.value} for ep in agent_eps],
+        }
+    except Exception as e:
+        return {"tools": [], "agents": [], "error": str(e)}
+
+
+@app.get("/health-panel")
+def health_panel():
+    orch = _init_runtime()
+    agents_list = [a.name for a in orch._agents.values()]
+    try:
+        stats = orch.router.get_token_stats() or {}
+    except Exception:
+        stats = {}
+    total_tokens = sum(
+        (s.get("prompt", 0) + s.get("completion", 0)) for s in stats.values()
+    )
+    total_calls = sum(s.get("calls", 0) for s in stats.values())
+    return {
+        "ok": True,
+        "agents": agents_list,
+        "models_available": list(orch.router.list_models().keys()),
+        "current_model": orch.router.current_key,
+        "total_calls": total_calls,
+        "total_tokens": total_tokens,
+        "per_model": stats,
+    }
+
+
+@app.get("/feedback/stats")
+def feedback_stats():
+    from core import feedback
+
+    return feedback.stats()
+
+
+@app.post("/system/update")
+def system_update():
+    import subprocess
+
+    try:
+        r1 = subprocess.run(
+            ["git", "pull"],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        pull_out = (r1.stdout or "") + (r1.stderr or "")
+        if r1.returncode != 0:
+            return {"ok": False, "stage": "git pull", "output": pull_out}
+        r2 = subprocess.run(
+            ["pip", "install", "-e", ".", "--quiet"],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        pip_out = (r2.stdout or "") + (r2.stderr or "")
+        return {
+            "ok": r2.returncode == 0,
+            "pull": pull_out.strip(),
+            "pip": pip_out.strip(),
+            "note": "앱 재시작이 필요할 수 있습니다.",
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/skills")
 def list_skills_api():
     from core.skills import list_skills

@@ -11,7 +11,13 @@ import {
   type FailureSummary,
 } from "./api";
 
-type Tab = "ab" | "failures" | "checkpoints" | "audit" | "activity";
+type Tab =
+  | "ab"
+  | "failures"
+  | "checkpoints"
+  | "audit"
+  | "activity"
+  | "system";
 
 export default function Dashboard({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("ab");
@@ -53,6 +59,12 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
           >
             활동 로그
           </button>
+          <button
+            className={tab === "system" ? "active" : ""}
+            onClick={() => setTab("system")}
+          >
+            시스템
+          </button>
         </nav>
       </header>
       <main className="settings-body">
@@ -61,6 +73,7 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
         {tab === "checkpoints" && <CheckpointsTab />}
         {tab === "audit" && <AuditTab />}
         {tab === "activity" && <ActivityTab />}
+        {tab === "system" && <SystemTab />}
       </main>
     </div>
   );
@@ -643,6 +656,208 @@ function ActivityTab() {
             </div>
           ))}
         </div>
+      )}
+    </>
+  );
+}
+
+function SystemTab() {
+  const [health, setHealth] = useState<any>(null);
+  const [feedback, setFeedback] = useState<any>(null);
+  const [mcp, setMcp] = useState<any>(null);
+  const [plugins, setPlugins] = useState<any>(null);
+  const [err, setErr] = useState("");
+  const [updating, setUpdating] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState<string>("");
+
+  async function refresh() {
+    try {
+      const [h, f, m, p] = await Promise.all([
+        api.healthPanel(),
+        api.feedbackStats(),
+        api.mcpServers(),
+        api.plugins(),
+      ]);
+      setHealth(h);
+      setFeedback(f);
+      setMcp(m);
+      setPlugins(p);
+      setErr("");
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function runUpdate() {
+    if (!confirm("git pull + pip install -e . 를 실행합니다. 계속?")) return;
+    setUpdating(true);
+    setUpdateMsg("");
+    try {
+      const r = await api.systemUpdate();
+      setUpdateMsg(
+        (r.ok ? "✓ " : "✗ ") +
+          [r.pull, r.pip, r.note, r.error, r.output]
+            .filter(Boolean)
+            .join("\n\n"),
+      );
+    } catch (e: any) {
+      setUpdateMsg(`오류: ${e.message}`);
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="panel-toolbar">
+        <button onClick={refresh}>새로고침</button>
+      </div>
+      {err && <div className="err">{err}</div>}
+
+      <h3 style={{ marginTop: 0 }}>Health</h3>
+      {health && (
+        <div className="card-grid">
+          <div className="stat-card">
+            <div className="stat-label">현재 모델</div>
+            <div className="stat-value">
+              <code>{health.current_model}</code>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">활성 에이전트</div>
+            <div className="stat-value">{health.agents.length}</div>
+            <div className="stat-sub">{health.agents.join(", ")}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">누적 호출</div>
+            <div className="stat-value">
+              {health.total_calls.toLocaleString()}
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">누적 토큰</div>
+            <div className="stat-value">
+              {health.total_tokens.toLocaleString()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <h3>피드백</h3>
+      {feedback && (
+        <div className="card-grid">
+          <div className="stat-card">
+            <div className="stat-label">전체</div>
+            <div className="stat-value">{feedback.total}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label" style={{ color: "#16a34a" }}>
+              긍정
+            </div>
+            <div className="stat-value">{feedback.positive}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label" style={{ color: "#dc2626" }}>
+              부정
+            </div>
+            <div className="stat-value">{feedback.negative}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">중립</div>
+            <div className="stat-value">{feedback.neutral}</div>
+          </div>
+        </div>
+      )}
+
+      <h3>MCP 서버</h3>
+      {mcp && (
+        <div style={{ fontSize: 13 }}>
+          <div>
+            <b>설정된 서버:</b>{" "}
+            {mcp.configured.length === 0 ? (
+              <span className="muted">없음</span>
+            ) : (
+              <ul>
+                {mcp.configured.map((s: any, i: number) => (
+                  <li key={i}>
+                    <code>{s.name || JSON.stringify(s)}</code>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <b>런타임 MCP 도구:</b>{" "}
+            {mcp.runtime_tools.length === 0 ? (
+              <span className="muted">없음</span>
+            ) : (
+              mcp.runtime_tools.map((t: string) => (
+                <code key={t} style={{ marginRight: 6 }}>
+                  {t}
+                </code>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      <h3>플러그인</h3>
+      {plugins && (
+        <div style={{ fontSize: 13 }}>
+          <div>
+            <b>Tool plugins:</b>{" "}
+            {plugins.tools.length === 0 ? (
+              <span className="muted">없음</span>
+            ) : (
+              plugins.tools.map((p: any) => (
+                <div key={p.name}>
+                  <code>{p.name}</code> → {p.value}
+                </div>
+              ))
+            )}
+          </div>
+          <div style={{ marginTop: 6 }}>
+            <b>Agent plugins:</b>{" "}
+            {plugins.agents.length === 0 ? (
+              <span className="muted">없음</span>
+            ) : (
+              plugins.agents.map((p: any) => (
+                <div key={p.name}>
+                  <code>{p.name}</code> → {p.value}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      <h3>업데이트</h3>
+      <p className="muted">git pull + pip install -e . 실행 (앱 재시작 필요).</p>
+      <button
+        className="primary"
+        onClick={runUpdate}
+        disabled={updating}
+      >
+        {updating ? "업데이트 중..." : "지금 업데이트"}
+      </button>
+      {updateMsg && (
+        <pre
+          style={{
+            marginTop: 12,
+            background: "#f9fafb",
+            border: "1px solid #e7e9ef",
+            borderRadius: 6,
+            padding: 10,
+            fontSize: 12,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {updateMsg}
+        </pre>
       )}
     </>
   );
