@@ -145,33 +145,45 @@ class Orchestrator:
                 agent = routed
 
         # Auto-routing — 매 호출마다 평가, 응답 끝나면 모델 원복
+        # 단, 사용자가 명시적으로 Claude 등 비-Ollama 모델을 선택했으면 auto-route 스킵
         _saved_model_for_route = None
+        _user_chose_provider = False
         try:
-            from core.router_strategy import RouterStrategy, TaskContext
-            strat = RouterStrategy()
-            if strat.strategy == "auto":
-                ctx = TaskContext(
-                    user_input=sanitized,
-                    agent=agent.name,
-                    messages_count=len(agent._conversation),
-                )
-                decision = strat.decide(ctx)
-                if decision.agent_name and decision.agent_name != agent.name:
-                    try:
-                        new_agent = self.get_agent(decision.agent_name)
-                        logger.info(f"auto-route 에이전트: {agent.name} → {new_agent.name} (rule={decision.rule_name})")
-                        agent = new_agent
-                    except ValueError:
-                        pass
-                if decision.model_key and decision.model_key != self.router.current_key:
-                    try:
-                        _saved_model_for_route = self.router.current_key
-                        self.router.switch_model(decision.model_key)
-                        logger.info(f"auto-route 모델: {_saved_model_for_route} → {decision.model_key} (rule={decision.rule_name})")
-                    except ValueError:
-                        _saved_model_for_route = None
-        except Exception as e:
-            logger.debug(f"auto-routing 스킵: {e}")
+            from config.settings import get_model_config
+            cur_cfg = get_model_config(self.router.current_key)
+            _user_chose_provider = cur_cfg.get("provider") == "claude_cli"
+        except Exception:
+            pass
+
+        if not _user_chose_provider:
+            try:
+                from core.router_strategy import RouterStrategy, TaskContext
+                strat = RouterStrategy()
+                if strat.strategy == "auto":
+                    ctx = TaskContext(
+                        user_input=sanitized,
+                        agent=agent.name,
+                        messages_count=len(agent._conversation),
+                    )
+                    decision = strat.decide(ctx)
+                    if decision.agent_name and decision.agent_name != agent.name:
+                        try:
+                            new_agent = self.get_agent(decision.agent_name)
+                            logger.info(f"auto-route 에이전트: {agent.name} → {new_agent.name} (rule={decision.rule_name})")
+                            agent = new_agent
+                        except ValueError:
+                            pass
+                    if decision.model_key and decision.model_key != self.router.current_key:
+                        try:
+                            _saved_model_for_route = self.router.current_key
+                            self.router.switch_model(decision.model_key)
+                            logger.info(f"auto-route 모델: {_saved_model_for_route} → {decision.model_key} (rule={decision.rule_name})")
+                        except ValueError:
+                            _saved_model_for_route = None
+            except Exception as e:
+                logger.debug(f"auto-routing 스킵: {e}")
+        else:
+            logger.info(f"사용자 선택 모델({self.router.current_key}) 유지 — auto-route 스킵")
 
         logger.debug(
             f"[{agent.name}] 요청 처리 (source={source.value}, session={session_id}): "
@@ -295,7 +307,7 @@ class Orchestrator:
                 self._persist_session(session_id, agent.name, agent._conversation)
             agent.activity = None
             # auto-route로 모델 임시 전환했다면 원복
-            # 단, handle() 중 에스컬레이션이 일어났다면 sticky 유지 (원복 안 함)
+            # 단, handle() 중 에스컬레이션 또는 사용자 명시 선택 시 원복 안 함
             escalated = getattr(agent, "_escalated", False)
             if _saved_model_for_route and not escalated:
                 try:
