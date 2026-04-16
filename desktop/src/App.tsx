@@ -215,7 +215,19 @@ export default function App() {
     setTools([]);
     try {
       const det = await api.session(sid);
-      setMessages(det.conversation.filter((m) => m.role !== "system"));
+      setMessages(
+        det.conversation
+          .filter((m) => m.role !== "system")
+          .filter((m) => !m.content.startsWith("<tool_result"))
+          .map((m) => ({
+            ...m,
+            content: m.content
+              .replace(/<tool\s+name="[^"]*">[\s\S]*?<\/tool>/g, "")
+              .replace(/<tool_results>[\s\S]*?<\/tool_results>/g, "")
+              .trim(),
+          }))
+          .filter((m) => m.content.length > 0),
+      );
       requestAnimationFrame(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
       });
