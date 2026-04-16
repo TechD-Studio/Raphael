@@ -211,9 +211,15 @@ class WebSearch:
 
         return hits
 
-    async def summarize(self, query: str, max_results: int = 5) -> str:
+    async def summarize(
+        self,
+        query: str,
+        max_results: int = 5,
+        auto_fetch: int = 0,
+    ) -> str:
         """검색 결과를 LLM이 읽기 좋은 텍스트로 요약.
 
+        auto_fetch > 0 이면 상위 N개 URL의 본문을 자동으로 fetch해 포함한다.
         외부 콘텐츠이므로 명령어/인젝션 패턴을 sanitize_external_text로 정제해서 반환.
         """
         from core.input_guard import sanitize_external_text
@@ -231,6 +237,18 @@ class WebSearch:
             if safe_snippet:
                 lines.append(f"    {safe_snippet}")
             lines.append("")
+
+        if auto_fetch > 0 and hits:
+            from tools.fetch_tool import FetchTool
+            fetcher = FetchTool(max_chars=4000)
+            lines.append("── 본문 자동 수집 ──\n")
+            for h in hits[:auto_fetch]:
+                try:
+                    body = await fetcher.fetch(h.url)
+                    safe_body = sanitize_external_text(body[:4000])
+                    lines.append(f"### [{h.title}]({h.url})\n{safe_body}\n")
+                except Exception as e:
+                    lines.append(f"### [{h.title}]({h.url})\n(fetch 실패: {e})\n")
 
         return "\n".join(lines).rstrip()
 

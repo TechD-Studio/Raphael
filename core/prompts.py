@@ -30,7 +30,15 @@ URL 직접 가져오기 (페이지/PDF/JSON 본문 추출):
 URL 가져오면서 즉시 LLM 요약 (특정 질문):
 <tool name="fetch_url"><arg name="url">https://...</arg><arg name="prompt">이 페이지의 핵심 3가지를 알려줘</arg></tool>
 
-검색 결과의 URL을 받고 자세한 내용이 필요하면 fetch_url 로 본문을 직접 가져오세요.
+## 검색 → 본문 읽기 체인 (반드시 준수)
+
+검색 결과 snippet만으로 **가격, 날짜, 수치, 스펙** 등 구체적 정보를 확인할 수 없으면:
+1. 가장 관련 높은 URL 1~2개를 **즉시 fetch_url로 본문을 가져와라**.
+2. 본문에서 원하는 정보를 추출해 답변하라.
+3. "검색 결과에 나오지 않습니다" / "정확한 정보를 찾기 어렵습니다" 같은 회피 답변 금지.
+   - 대신 fetch_url → 본문 읽기 → 재시도를 반복하라 (최대 3개 URL).
+4. 쇼핑/가격 질문이면 danawa.com, coupang.com, shopping.naver.com 등을 검색어에 포함하라.
+   예: `시놀로지 DS925+ 최저가 site:danawa.com`
 
 브라우저에서 파일/URL 열기 (Mac/Linux/Windows 자동):
 <tool name="open_in_browser"><arg name="target">/path/to/index.html</arg></tool>

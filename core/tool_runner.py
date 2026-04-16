@@ -424,7 +424,10 @@ async def _dispatch(call: ToolCall, registry: ToolRegistry) -> str:
     if name == "web_search":
         query = _require(args, "query")
         max_results = int(args.get("max_results", "5"))
-        return await registry.get("web_search").summarize(query, max_results=max_results)
+        auto_fetch = int(args.get("auto_fetch", "2"))
+        return await registry.get("web_search").summarize(
+            query, max_results=max_results, auto_fetch=auto_fetch,
+        )
 
     raise ValueError(f"알 수 없는 도구: {name}")
 
