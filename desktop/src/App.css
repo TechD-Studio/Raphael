@@ -324,16 +324,50 @@ body {
 }
 
 .panel-toolbar { margin-bottom: 12px; }
-.primary {
+
+/* ── Unified button base for settings/dashboard ── */
+.settings-body button,
+.panel-toolbar button {
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.settings-body button:hover:not(:disabled),
+.panel-toolbar button:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--hover-bg);
+}
+.settings-body button:disabled,
+.panel-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Primary override */
+.primary,
+.settings-body button.primary,
+.panel-toolbar button.primary {
   background: var(--primary);
   color: var(--primary-text);
-  border: none;
+  border: 1px solid var(--primary);
   border-radius: 6px;
-  padding: 8px 14px;
+  padding: 7px 14px;
   cursor: pointer;
   font-weight: 500;
 }
-.primary:disabled { background: #c4c7cd; }
+.primary:hover:not(:disabled) {
+  background: #4f46e5;
+  color: var(--primary-text);
+  border-color: #4f46e5;
+}
+.primary:disabled { background: #c4c7cd; border-color: #c4c7cd; color: #fff; }
 
 .err {
   background: var(--err-bg);
@@ -357,19 +391,6 @@ body {
 .agent-table th { background: var(--panel-bg); color: var(--text-sub); font-weight: 600; }
 .agent-table code { font-size: 12px; background: var(--inline-code-bg); color: var(--text); padding: 1px 6px; border-radius: 4px; }
 .agent-table .actions button { margin-right: 4px; }
-.agent-table button {
-  border: 1px solid var(--input-border);
-  background: var(--bg-card);
-  color: var(--text);
-  border-radius: 6px;
-  padding: 5px 12px;
-  cursor: pointer;
-  font-size: 12px;
-  font-family: inherit;
-  transition: background 0.12s, border-color 0.12s;
-}
-.agent-table button:hover { border-color: var(--primary); color: var(--primary); }
-.agent-table button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .agent-editor { max-width: 720px; }
 .agent-editor h3 { margin-top: 0; }
@@ -409,17 +430,6 @@ body {
   resize: vertical;
 }
 .agent-editor .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
-.agent-editor .row button {
-  border: 1px solid var(--input-border);
-  background: var(--bg-card);
-  color: var(--text);
-  border-radius: 6px;
-  padding: 8px 14px;
-  cursor: pointer;
-  font: inherit;
-}
-.agent-editor .row button:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
-.agent-editor .row button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .model-list { list-style: none; padding: 0; }
 .model-list li {
@@ -866,15 +876,7 @@ body {
   color: var(--primary);
 }
 .tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.model-list button {
-  margin-left: auto;
-  border: 1px solid var(--input-border);
-  background: var(--bg-card);
-  border-radius: 4px;
-  padding: 4px 12px;
-  cursor: pointer;
-  font-size: 12px;
-}
+.model-list button { margin-left: auto; }
 
 .feedback-bar {
   display: flex;
@@ -1127,16 +1129,6 @@ pre:hover .code-copy { opacity: 1; }
 [data-theme="dark"] .feedback-bar .fb.on {
   background: var(--tag-bg);
   border-color: var(--primary);
-}
-
-/* Panel toolbar buttons (Dashboard) */
-[data-theme="dark"] .panel-toolbar button {
-  background: var(--bg-card);
-  color: var(--text);
-  border: 1px solid var(--input-border);
-  border-radius: 6px;
-  padding: 6px 12px;
-  cursor: pointer;
 }
 
 /* Badges */

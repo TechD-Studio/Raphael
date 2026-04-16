@@ -488,7 +488,7 @@ function ModelsPanel() {
           onChange={(e) => setPullName(e.target.value)}
           style={{
             flex: 1,
-            border: "1px solid #d4d7df",
+            border: "1px solid var(--input-border)", background: "var(--input-bg)", color: "var(--text)",
             borderRadius: 6,
             padding: "6px 10px",
           }}
@@ -1278,7 +1278,7 @@ function SecurityPanel() {
           onKeyDown={(e) => e.key === "Enter" && addPath()}
           style={{
             flex: 1,
-            border: "1px solid #d4d7df",
+            border: "1px solid var(--input-border)", background: "var(--input-bg)", color: "var(--text)",
             borderRadius: 6,
             padding: "6px 10px",
           }}
@@ -1343,7 +1343,7 @@ function SecurityPanel() {
           value={newKey}
           onChange={(e) => setNewKey(e.target.value)}
           style={{
-            border: "1px solid #d4d7df",
+            border: "1px solid var(--input-border)", background: "var(--input-bg)", color: "var(--text)",
             borderRadius: 6,
             padding: "6px 10px",
             width: 260,
@@ -1356,7 +1356,7 @@ function SecurityPanel() {
           onChange={(e) => setNewVal(e.target.value)}
           style={{
             flex: 1,
-            border: "1px solid #d4d7df",
+            border: "1px solid var(--input-border)", background: "var(--input-bg)", color: "var(--text)",
             borderRadius: 6,
             padding: "6px 10px",
           }}
@@ -1463,7 +1463,7 @@ function ProfilePanel() {
           onKeyDown={(e) => e.key === "Enter" && add()}
           style={{
             flex: 1,
-            border: "1px solid #d4d7df",
+            border: "1px solid var(--input-border)", background: "var(--input-bg)", color: "var(--text)",
             borderRadius: 6,
             padding: "6px 10px",
           }}
@@ -1555,7 +1555,7 @@ function PoolPanel() {
                 value={srv.name}
                 onChange={(e) => update(i, { name: e.target.value })}
                 style={{
-                  border: "1px solid #d4d7df",
+                  border: "1px solid var(--input-border)", background: "var(--input-bg)", color: "var(--text)",
                   borderRadius: 4,
                   padding: "3px 8px",
                   width: 140,
