@@ -2047,6 +2047,30 @@ function ImageGenPanel() {
       <p className="muted">
         채팅에서 "그림 그려줘" 요청 시 사용할 백엔드를 설정합니다.
       </p>
+      <details style={{ marginBottom: 12, fontSize: 12 }}>
+        <summary style={{ cursor: "pointer", color: "var(--primary)" }}>로컬 FLUX.1 설정 가이드</summary>
+        <div className="info-box" style={{ borderRadius: 6, padding: 10, marginTop: 6 }}>
+          <ol style={{ margin: 0, paddingLeft: 18 }}>
+            <li>터미널: <code>pip install mflux</code></li>
+            <li><a href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer">HuggingFace 토큰 생성</a> (Read 권한)</li>
+            <li><a href="https://huggingface.co/black-forest-labs/FLUX.1-schnell" target="_blank" rel="noreferrer">FLUX.1-schnell 모델 접근 승인</a> (Agree 버튼)</li>
+            <li>아래 HUGGINGFACE_TOKEN에 토큰 입력</li>
+            <li>터미널: <code>huggingface-cli login</code> (토큰 입력)</li>
+            <li>첫 생성 시 ~4GB 모델 자동 다운로드</li>
+          </ol>
+        </div>
+      </details>
+      <details style={{ marginBottom: 12, fontSize: 12 }}>
+        <summary style={{ cursor: "pointer", color: "var(--primary)" }}>OpenAI DALL-E 설정 가이드</summary>
+        <div className="info-box" style={{ borderRadius: 6, padding: 10, marginTop: 6 }}>
+          <ol style={{ margin: 0, paddingLeft: 18 }}>
+            <li><a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">OpenAI API 키 생성</a></li>
+            <li>아래 OPENAI_API_KEY에 키 입력</li>
+            <li>백엔드를 "OpenAI DALL-E 3" 또는 "auto"로 설정</li>
+            <li>비용: ~$0.04/장 (1024x1024)</li>
+          </ol>
+        </div>
+      </details>
       {err && <div className="err">{err}</div>}
       {msg && <div className="ok-msg">{msg}</div>}
 
@@ -2091,8 +2115,7 @@ function ImageGenPanel() {
       </label>
       <h4 style={{ marginTop: 16, marginBottom: 4 }}>API 키</h4>
       <p className="muted">
-        로컬 FLUX.1은 HuggingFace 인증 필요 (hf_...). OpenAI DALL-E는 OPENAI_API_KEY 필요 (sk-...).
-        입력 후 포커스를 빼면 자동 저장됩니다.
+        입력 후 포커스를 빼면 OS Keychain에 자동 저장됩니다.
       </p>
       <label>
         OPENAI_API_KEY {secrets["OPENAI_API_KEY"] && <span className="muted"> — 저장됨: {secrets["OPENAI_API_KEY"]}</span>}
