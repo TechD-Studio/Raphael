@@ -70,6 +70,7 @@ export default function App() {
       output?: string;
     }[]
   >([]);
+  const [dragOver, setDragOver] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -264,6 +265,16 @@ export default function App() {
 
   const lastUserText = useRef("");
 
+  function forkAt(turnIndex: number) {
+    const kept = messages.slice(0, turnIndex);
+    const sid = newSessionId();
+    setActiveSid(sid);
+    setMessages(kept);
+    setStreamBuf("");
+    setTools([]);
+    refreshSessions();
+  }
+
   async function regenerate() {
     if (streaming || messages.length < 2) return;
     const trimmed = [...messages];
@@ -401,15 +412,47 @@ export default function App() {
   function attachFiles(files: FileList | null) {
     if (!files) return;
     Array.from(files).forEach((f) => {
-      if (!f.type.startsWith("image/")) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          setPendingImages((arr) => [...arr, reader.result as string]);
-        }
-      };
-      reader.readAsDataURL(f);
+      if (f.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === "string") {
+            setPendingImages((arr) => [...arr, reader.result as string]);
+          }
+        };
+        reader.readAsDataURL(f);
+      } else if (
+        f.type.startsWith("text/") ||
+        /\.(txt|md|csv|json|xml|log|py|js|ts|html|css|yaml|yml|toml|sh|sql)$/i.test(f.name)
+      ) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === "string") {
+            const prefix = `[파일: ${f.name}]\n`;
+            setInput((prev) => (prev ? prev + "\n\n" : "") + prefix + reader.result);
+          }
+        };
+        reader.readAsText(f);
+      } else if (f.name.endsWith(".pdf")) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (reader.result instanceof ArrayBuffer) {
+            const b64 = btoa(
+              new Uint8Array(reader.result).reduce((s, b) => s + String.fromCharCode(b), ""),
+            );
+            setInput(
+              (prev) => (prev ? prev + "\n\n" : "") + `[PDF 첨부: ${f.name}, ${(f.size / 1024).toFixed(0)}KB — base64 인코딩됨]\ndata:application/pdf;base64,${b64.slice(0, 200)}...`,
+            );
+          }
+        };
+        reader.readAsArrayBuffer(f);
+      }
     });
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    attachFiles(e.dataTransfer.files);
   }
 
   async function respondApproval(approved: boolean) {
@@ -768,6 +811,7 @@ export default function App() {
             </div>
           ))}
         </div>
+        <SidebarStats healthy={healthy} />
         <div className="sidebar-foot">
           <span className={`dot ${healthy ? "ok" : "bad"}`} />
           <span style={{ fontSize: 12 }}>{healthy ? "연결됨" : "데몬 대기..."}</span>
@@ -802,7 +846,18 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="chat">
+      <main
+        className={`chat ${dragOver ? "drag-over" : ""}`}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={(e) => {
+          if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+          setDragOver(false);
+        }}
+        onDrop={handleDrop}
+      >
+        {dragOver && (
+          <div className="drop-overlay">파일을 여기에 놓으세요</div>
+        )}
         <div className="chat-toolbar">
           <span className="muted" style={{ fontSize: 12 }}>
             {activeSid ? `session: ${activeSid}` : "new session"}
@@ -883,6 +938,15 @@ export default function App() {
                   {m.content}
                 </ReactMarkdown>
               </div>
+              {m.role === "user" && i > 0 && !streaming && (
+                <button
+                  className="fork-btn"
+                  onClick={() => forkAt(i)}
+                  title="여기서 분기 — 이 시점까지만 유지하고 새 세션 시작"
+                >
+                  ↗ 분기
+                </button>
+              )}
               {m.role === "assistant" && (
                 <div className="msg-actions">
                   <CopyButton text={m.content} />
@@ -1195,5 +1259,44 @@ function CopyButton({ text }: { text: string }) {
     <button className="copy-btn" onClick={copy} title="복사">
       {copied ? "✓" : "📋"}
     </button>
+  );
+}
+
+function SidebarStats({ healthy }: { healthy: boolean }) {
+  const [stats, setStats] = useState<{
+    calls: number;
+    tokens: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!healthy) return;
+    let alive = true;
+    async function poll() {
+      try {
+        const s = await api.tokenStats();
+        if (!alive) return;
+        let calls = 0;
+        let tokens = 0;
+        for (const v of Object.values(s)) {
+          calls += v.calls;
+          tokens += v.prompt + v.completion;
+        }
+        setStats({ calls, tokens });
+      } catch {}
+    }
+    poll();
+    const id = setInterval(poll, 30000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [healthy]);
+
+  if (!stats || !stats.calls) return null;
+  return (
+    <div className="sidebar-stats">
+      <span>{stats.calls.toLocaleString()} calls</span>
+      <span>{stats.tokens >= 1000 ? `${(stats.tokens / 1000).toFixed(1)}k` : stats.tokens} tok</span>
+    </div>
   );
 }

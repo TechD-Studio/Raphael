@@ -1095,3 +1095,49 @@ pre:hover .code-copy { opacity: 1; }
   color: var(--text);
   border: 1px solid var(--border);
 }
+
+.chat.drag-over { position: relative; }
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: rgba(99, 102, 241, 0.12);
+  border: 3px dashed var(--primary);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--primary);
+  pointer-events: none;
+}
+
+.sidebar-stats {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 4px 12px;
+  font-size: 10px;
+  color: #888c95;
+  border-top: 1px solid #2a2d35;
+}
+
+.fork-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 10px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  margin-top: 2px;
+}
+.msg-user:hover .fork-btn { opacity: 1; }
+.fork-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--primary);
+  color: var(--primary);
+}
