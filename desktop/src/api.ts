@@ -330,6 +330,11 @@ export const api = {
       output?: string;
     }>("/system/update", {}),
 
+  customInstructions: () =>
+    jget<{ text: string }>("/settings/custom-instructions"),
+  saveCustomInstructions: (text: string) =>
+    jpost<{ ok: boolean }>("/settings/custom-instructions", { text }),
+
   escalation: () =>
     jget<{ ladder: string[]; available: string[] }>("/settings/escalation"),
   saveEscalation: (ladder: string[]) =>

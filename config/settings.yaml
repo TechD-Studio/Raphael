@@ -115,6 +115,10 @@ tools:
     # 백엔드 시도 순서. searxng_url 있으면 [searxng, ddg_html, ddgs] 자동 우선.
     # backend_order: ["searxng", "ddg_html", "ddgs"]
 
+  # 사용자 커스텀 지시문 — 모든 에이전트의 시스템 프롬프트에 추가됩니다.
+  # 데스크톱 설정 > 에이전트 탭에서 수정 가능.
+  custom_instructions: ""
+
   image_gen:
     # 이미지 생성 백엔드: "local" (MLX) | "openai" (DALL-E) | "auto" (키 있으면 openai)
     backend: "auto"

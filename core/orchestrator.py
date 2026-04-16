@@ -265,6 +265,22 @@ class Orchestrator:
             logger.debug(f"main 카탈로그 주입 실패: {e}")
 
         try:
+            from config.settings import get_settings
+            custom = (get_settings().get("tools") or {}).get("custom_instructions", "").strip()
+            if custom:
+                agent._conversation = [
+                    m for m in agent._conversation
+                    if not (m.get("role") == "system" and m.get("content", "").startswith("## 사용자 커스텀 지시문"))
+                ]
+                insert_at = 1 if agent._conversation and agent._conversation[0]["role"] == "system" else 0
+                agent._conversation.insert(insert_at, {
+                    "role": "system",
+                    "content": f"## 사용자 커스텀 지시문 (최우선 준수)\n{custom}",
+                })
+        except Exception as e:
+            logger.debug(f"커스텀 지시문 주입 실패: {e}")
+
+        try:
             response = await agent.handle(sanitized, **kwargs)
             activity.assistant_message(response)
 

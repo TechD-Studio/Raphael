@@ -71,8 +71,10 @@ export default function Settings({ onBack }: { onBack: () => void }) {
       <main className="settings-body">
         {tab === "agents" && (
           <>
+            <CustomInstructionsPanel />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid var(--border)" }} />
             <AgentsPanel />
-            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid var(--border)" }} />
             <ProfilePanel />
           </>
         )}
@@ -101,6 +103,49 @@ export default function Settings({ onBack }: { onBack: () => void }) {
         )}
         {tab === "rag" && <RagPanel />}
       </main>
+    </div>
+  );
+}
+
+function CustomInstructionsPanel() {
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    api.customInstructions().then((d) => setText(d.text)).catch(() => {});
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setMsg("");
+    try {
+      await api.saveCustomInstructions(text);
+      setMsg("저장됨 — 다음 메시지부터 적용됩니다.");
+    } catch {}
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="agent-editor">
+      <h3>글로벌 커스텀 지시문</h3>
+      <p className="muted">
+        모든 에이전트에 공통으로 적용되는 지시문입니다. 여기에 작성한 내용은
+        시스템 프롬프트에 "최우선 준수" 태그와 함께 주입됩니다.
+      </p>
+      {msg && <div className="ok-msg">{msg}</div>}
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={"예시:\n- 항상 한국어로 답하라\n- 이미지 요청 시 generate_image를 반드시 호출하라\n- 답변은 500자 이내로 간결하게"}
+        rows={6}
+        style={{ width: "100%" }}
+      />
+      <div className="row">
+        <button className="primary" onClick={save} disabled={saving}>
+          {saving ? "저장 중..." : "저장"}
+        </button>
+      </div>
     </div>
   );
 }

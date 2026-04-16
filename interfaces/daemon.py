@@ -825,6 +825,24 @@ def finetune_delete(name: str):
     return FineTuneTool().delete(name)
 
 
+@app.get("/settings/custom-instructions")
+def get_custom_instructions():
+    from config.settings import get_settings
+    return {"text": (get_settings().get("tools") or {}).get("custom_instructions", "")}
+
+
+class CustomInstructionsReq(BaseModel):
+    text: str
+
+
+@app.post("/settings/custom-instructions")
+def save_custom_instructions(req: CustomInstructionsReq):
+    from config.settings import save_local_settings, reload_settings
+    save_local_settings({"tools": {"custom_instructions": req.text}})
+    reload_settings()
+    return {"ok": True}
+
+
 @app.get("/settings/escalation")
 def get_escalation():
     from config.settings import get_settings
