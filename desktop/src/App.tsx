@@ -57,11 +57,9 @@ export default function App() {
   const [tokenPanelOpen, setTokenPanelOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => {
-    const stored = localStorage.getItem("raphael-theme");
-    if (stored) return stored === "dark";
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
-  });
+  const [darkMode, setDarkMode] = useState(
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
+  );
   const [plannerSteps, setPlannerSteps] = useState<
     {
       agent: string;
@@ -83,8 +81,14 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
-    localStorage.setItem("raphael-theme", darkMode ? "dark" : "light");
   }, [darkMode]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => setDarkMode(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   useEffect(() => {
     // Auto-check for app updates (non-blocking)
@@ -811,21 +815,6 @@ export default function App() {
               ))}
             </select>
           )}
-          <button
-            onClick={() => setDarkMode(!darkMode)}
-            title={darkMode ? "라이트 모드" : "다크 모드"}
-            style={{
-              marginLeft: "auto",
-              background: "transparent",
-              border: "none",
-              color: "#d6d8df",
-              cursor: "pointer",
-              fontSize: 16,
-              padding: "2px 6px",
-            }}
-          >
-            {darkMode ? "☀" : "🌙"}
-          </button>
         </div>
       </aside>
 
