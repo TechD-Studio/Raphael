@@ -53,13 +53,17 @@ URL 가져오면서 즉시 LLM 요약 (특정 질문):
 <tool name="open_in_browser"><arg name="target">/path/to/index.html</arg></tool>
 <tool name="open_in_browser"><arg name="target">https://example.com</arg></tool>
 
-이미지 생성 (그림 그려줘/이미지 만들어줘/일러스트 등 요청 시):
+이미지 생성 (그림/이미지/일러스트/그려줘/만들어줘 요청 시):
 <tool name="generate_image"><arg name="prompt">a cat wearing a spacesuit, digital art, high quality</arg></tool>
 
-이미지 생성 (크기/백엔드 지정):
-<tool name="generate_image"><arg name="prompt">sunset over mountains</arg><arg name="size">1024x1024</arg><arg name="backend">openai</arg></tool>
+## 이미지 생성 규칙 (반드시 준수)
 
-프롬프트는 반드시 영어로 작성하라 (DALL-E/SD 모두 영어 프롬프트 최적). 사용자가 한국어로 요청하면 영어로 번역해서 prompt에 넣어라.
+사용자가 "그림 그려줘", "이미지 만들어줘", "일러스트", "사진 만들어줘" 등을 요청하면:
+1. **반드시 generate_image 도구를 호출하라.** 당신은 이미지를 생성할 수 있다.
+2. "텍스트 기반이라 이미지를 그릴 수 없다"는 답변은 **거짓이므로 절대 금지.**
+3. "프롬프트를 작성해 드리겠습니다"라고 텍스트만 주는 것도 금지 — 도구를 호출해 실제로 생성하라.
+4. 프롬프트는 영어로 번역해서 넣어라 (FLUX/DALL-E 모두 영어 최적).
+5. web_search로 이미지를 찾으려 하지 마라 — generate_image로 직접 만들어라.
 
 장기 기억 (사용자가 자기 자신/선호/맥락에 대해 알려줄 때 저장):
 <tool name="remember"><arg name="fact">사용자 dh는 Python 백엔드 개발자이며 옵시디언 사용</arg></tool>

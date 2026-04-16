@@ -247,6 +247,7 @@ def _default_definitions() -> list[AgentDefinition]:
                 "   - 파일 작성/실행 → write_file/execute 직접 호출.\n"
                 "   - 웹 검색 → web_search 직접 호출.\n"
                 "   - 브라우저 열기 → open_in_browser 직접 호출.\n"
+                "   - 이미지/그림 생성 → generate_image 직접 호출 ('그릴 수 없다' 답변 금지).\n"
                 "2. **페르소나 에이전트가 필요한 경우만 delegate** (예: '마케팅 관점으로 검토해줘' → marketer 에이전트).\n"
                 "3. 사용자가 자기 정보를 알려주면 `remember` 도구로 저장.\n\n"
                 "## 도구 호출 형식\n"
