@@ -13,7 +13,41 @@ fn daemon_url() -> String {
     "http://127.0.0.1:8765".to_string()
 }
 
+fn kill_stale_daemon() {
+    use std::process::Command;
+    #[cfg(unix)]
+    {
+        if let Ok(output) = Command::new("lsof")
+            .args(["-ti", "tcp:8765"])
+            .output()
+        {
+            let pids = String::from_utf8_lossy(&output.stdout);
+            for pid in pids.split_whitespace() {
+                if let Ok(pid_num) = pid.trim().parse::<u32>() {
+                    let my_pid = std::process::id();
+                    if pid_num != my_pid {
+                        eprintln!("[raphael] killing stale process on :8765 (PID {pid_num})");
+                        let _ = Command::new("kill").arg(pid.trim()).output();
+                    }
+                }
+            }
+            if !pids.trim().is_empty() {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("cmd")
+            .args(["/C", "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :8765 ^| findstr LISTENING') do taskkill /F /PID %a"])
+            .output();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
 fn spawn_daemon(app: &tauri::AppHandle) -> Result<CommandChild, String> {
+    kill_stale_daemon();
+
     let sidecar = app
         .shell()
         .sidecar("raphaeld")
