@@ -20,7 +20,7 @@ from core.tool_runner import (
 from tools.tool_registry import ToolRegistry
 
 
-MAX_TOOL_ITERATIONS = 4
+MAX_TOOL_ITERATIONS = 6
 
 # 대화 압축 임계값 — 메시지 수가 이를 넘으면 과거를 요약으로 치환
 COMPACT_THRESHOLD = 30
@@ -86,6 +86,15 @@ class AgentBase(ABC):
         if not getattr(self, "_escalated_sticky", False):
             self._escalated = False
         await self._maybe_compact()
+
+        failure_hint = self._load_failure_patterns()
+        if failure_hint:
+            self._conversation = [
+                m for m in self._conversation
+                if not (m.get("role") == "system" and "## 과거 실패 사례" in m.get("content", ""))
+            ]
+            insert_at = 1 if self._conversation and self._conversation[0]["role"] == "system" else 0
+            self._conversation.insert(insert_at, {"role": "system", "content": failure_hint})
 
         # kwargs에서 verbose/stream 플래그 추출 — Orchestrator에서 전달
         stream_tokens = kwargs.pop("stream_tokens", False)
@@ -214,6 +223,7 @@ class AgentBase(ABC):
                             f"수집된 결과:\n{last_tr}"
                         )
                     return "⚠ 모델이 빈 응답을 반환했습니다. `/model` 로 상위 모델 전환하거나 auto-route 규칙을 조정하세요."
+                final = await self._self_reflect(user_input, final)
                 return final
 
             # 필터: 에이전트에 바인딩된 도구만 허용
@@ -342,10 +352,78 @@ class AgentBase(ABC):
             "model": self.router.current_key,
             "reason": reason,
             "user_input": user_input,
-            "conversation": self._conversation[-10:],  # 최근 10개만
+            "conversation": self._conversation[-10:],
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         logger.info(f"실패 케이스 저장: {path}")
+
+    # ── 반사적 사고 ──────────────────────────────────────
+
+    async def _self_reflect(self, user_input: str, response: str) -> str:
+        """응답 품질 자체 평가. 부족하면 보완 시도."""
+        if len(response.strip()) < 10:
+            return response
+        if any(kw in response for kw in ("⚠ 최대 반복", "⚠ 모델이 빈 응답")):
+            return response
+        reflect_prompt = (
+            "방금 내가 한 답변을 점검한다:\n"
+            f"사용자 질문: {user_input[:300]}\n"
+            f"내 답변: {response[:500]}\n\n"
+            "다음 중 해당되는 것이 있으면 '보완필요: [구체적 내용]'으로 답하라:\n"
+            "1. 사용자가 구체적 정보(가격, 코드, 수치)를 요청했는데 모호한 조언만 했다\n"
+            "2. 도구를 사용할 수 있었는데 사용하지 않았다\n"
+            "3. 질문에 직접 답하지 않고 관련 없는 얘기를 했다\n"
+            "문제없으면 'OK'라고만 답하라."
+        )
+        try:
+            r = await self.router.chat(
+                [{"role": "system", "content": "짧게 답하라."},
+                 {"role": "user", "content": reflect_prompt}],
+                retry_on_empty=False,
+            )
+            verdict = r.get("message", {}).get("content", "").strip()
+            if verdict.startswith("보완필요"):
+                logger.info(f"[{self.name}] 자체 검토: 보완 시도 — {verdict[:100]}")
+                supplement_prompt = (
+                    f"방금 답변에 부족한 점이 발견되었다: {verdict}\n"
+                    f"원래 질문: {user_input[:300]}\n"
+                    "도구를 사용해서라도 부족한 부분을 보완하라."
+                )
+                self.add_message("user", supplement_prompt)
+                supplement = await self._call_model(supplement_prompt)
+                return f"{response}\n\n---\n\n💡 **보완**\n{supplement}"
+        except Exception as e:
+            logger.debug(f"자체 검토 실패 (무시): {e}")
+        return response
+
+    @staticmethod
+    def _load_failure_patterns() -> str:
+        """최근 실패 패턴에서 교훈을 추출해 프롬프트에 주입할 텍스트 생성."""
+        import json
+        from pathlib import Path
+        d = Path.home() / ".raphael" / "failures"
+        if not d.exists():
+            return ""
+        files = sorted(d.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:5]
+        if not files:
+            return ""
+        patterns: list[str] = []
+        for f in files:
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                reason = data.get("reason", "unknown")
+                agent = data.get("agent", "")
+                inp = data.get("user_input", "")[:80]
+                patterns.append(f"- [{agent}] {reason}: {inp}")
+            except Exception:
+                pass
+        if not patterns:
+            return ""
+        return (
+            "\n## 과거 실패 사례 (같은 실수 반복 금지)\n"
+            + "\n".join(patterns)
+            + "\n위 패턴을 피하고 다른 접근법을 시도하라.\n"
+        )
 
     # 카테고리 → 실제 도구 이름 매핑 (모듈 레벨에서도 참조)
     _TOOL_MAPPING = {

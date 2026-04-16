@@ -139,6 +139,11 @@ class Orchestrator:
         else:
             raise RuntimeError("등록된 에이전트가 없습니다.")
 
+        if not agent_name or agent_name in ("main", "coder", "coding"):
+            routed = self._auto_complexity_route(sanitized, agent)
+            if routed is not None:
+                agent = routed
+
         # Auto-routing — 매 호출마다 평가, 응답 끝나면 모델 원복
         _saved_model_for_route = None
         try:
@@ -262,6 +267,11 @@ class Orchestrator:
         try:
             response = await agent.handle(sanitized, **kwargs)
             activity.assistant_message(response)
+
+            if self._should_auto_review(agent, sanitized, response):
+                review = await self._run_auto_review(agent, sanitized, response, activity, **kwargs)
+                if review:
+                    response = f"{response}\n\n---\n\n🔍 **자동 검토**\n{review}"
         finally:
             if session_id is not None:
                 self._sessions[(session_id, agent.name)] = copy.deepcopy(agent._conversation)
@@ -283,6 +293,72 @@ class Orchestrator:
             response = f"{banner}\n\n---\n\n{response}"
 
         return response
+
+    # ── 자동 검토 ──────────────────────────────────────────
+
+    _REVIEW_TRIGGER_TOOLS = frozenset({"write_file", "execute", "python"})
+
+    def _should_auto_review(self, agent: AgentBase, user_input: str, response: str) -> bool:
+        """코딩 에이전트가 파일을 작성했거나 코드를 실행한 경우 자동 검토."""
+        if "reviewer" not in self._agents:
+            return False
+        if agent.name not in ("coder", "coding", "main"):
+            return False
+        from config.settings import get_settings
+        if not (get_settings().get("agents") or {}).get("auto_review", True):
+            return False
+        conv = agent._conversation
+        for m in conv[-6:]:
+            c = m.get("content", "")
+            if any(f'name="{t}"' in c for t in self._REVIEW_TRIGGER_TOOLS):
+                return True
+        return False
+
+    async def _run_auto_review(
+        self, agent: AgentBase, user_input: str, response: str,
+        activity: ActivityLogger, **kwargs,
+    ) -> str:
+        """reviewer 에이전트로 결과 검토."""
+        reviewer = self._agents["reviewer"]
+        review_prompt = (
+            f"다음 작업 결과를 검토하세요.\n\n"
+            f"## 사용자 요청\n{user_input[:500]}\n\n"
+            f"## 에이전트 응답 (요약)\n{response[:1000]}\n\n"
+            f"누락, 오류, 개선 사항이 있으면 간결하게 지적하세요. "
+            f"문제가 없으면 '검토 완료: 이상 없음'이라고만 답하세요."
+        )
+        try:
+            activity.note("자동 검토 시작 (reviewer)")
+            review = await reviewer.handle(review_prompt)
+            activity.note(f"자동 검토 완료: {review[:100]}")
+            if "이상 없음" in review and len(review) < 50:
+                return ""
+            return review.strip()
+        except Exception as e:
+            logger.warning(f"자동 검토 실패: {e}")
+            return ""
+
+    # ── 자동 복잡도 라우팅 ────────────────────────────────
+
+    _COMPLEX_KEYWORDS = (
+        "만들어", "구현", "작성해", "빌드", "설계", "개발",
+        "사이트", "앱", "서버", "API", "시스템",
+        "리팩토링", "마이그레이션", "변환",
+        "build", "create", "implement", "develop", "refactor",
+    )
+    _COMPLEX_MIN_LEN = 80
+
+    def _auto_complexity_route(self, text: str, current: AgentBase) -> AgentBase | None:
+        """복잡한 요청이면 planner로 자동 라우팅."""
+        if "planner" not in self._agents:
+            return None
+        has_keyword = any(kw in text for kw in self._COMPLEX_KEYWORDS)
+        is_long = len(text) >= self._COMPLEX_MIN_LEN
+        multi_step = text.count("\n") >= 3 or text.count(",") >= 3
+        if has_keyword and (is_long or multi_step):
+            logger.info(f"복잡도 감지 → planner 자동 라우팅 (len={len(text)}, keywords=True)")
+            return self._agents["planner"]
+        return None
 
     def reset_session(self, session_id: str, agent_name: str | None = None) -> None:
         """특정 세션의 대화를 초기화한다."""
