@@ -232,9 +232,12 @@ def token_stats():
 
 @app.delete("/sessions/{sid}")
 def delete_session(sid: str):
-    p = sessions_dir() / f"{sid}.json"
-    if p.exists():
+    d = sessions_dir()
+    deleted = False
+    for p in list(d.glob(f"{sid}*.json")):
         p.unlink()
+        deleted = True
+    if deleted:
         return {"deleted": True}
     raise HTTPException(404, "세션 없음")
 
