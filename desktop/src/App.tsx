@@ -71,6 +71,10 @@ export default function App() {
     }[]
   >([]);
   const [dragOver, setDragOver] = useState(false);
+  const [activeModel, setActiveModel] = useState("");
+  const [toolLog, setToolLog] = useState<
+    { type: "call" | "result" | "model"; name: string; detail: string; ts: number }[]
+  >([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -303,17 +307,29 @@ export default function App() {
     setStreamBuf("");
     setTools([]);
     setPlannerSteps([]);
+    setToolLog([]);
     let buf = "";
     try {
       await api.sendMessage(activeSid, text, targetAgent || undefined, {
         onChunk: (t) => { buf += t; setStreamBuf(buf); },
+        onModelCall: (d) => {
+          const model = d?.model || "?";
+          if (activeModel && model !== activeModel) {
+            setToolLog((l) => [...l, { type: "model", name: model, detail: `모델 전환: ${activeModel} → ${model}`, ts: Date.now() }]);
+          }
+          setActiveModel(model);
+        },
         onToolCall: (d) => {
           setTools((tt) => [...tt, `🔧 ${d?.name ?? "?"}`]);
+          const argsStr = Object.entries(d?.args || {}).map(([k, v]) => `${k}=${typeof v === "string" ? v.slice(0, 80) : v}`).join(", ");
+          setToolLog((l) => [...l, { type: "call", name: d?.name || "?", detail: argsStr, ts: Date.now() }]);
           if (d?.name === "delegate") {
             setPlannerSteps((s) => [...s, { agent: d?.args?.agent || "?", task: d?.args?.task || "", status: "running" }]);
           }
         },
         onToolResult: (d) => {
+          const out = d?.error || (d?.output || "").slice(0, 200);
+          setToolLog((l) => [...l, { type: "result", name: d?.name || "?", detail: out, ts: Date.now() }]);
           if (d?.name === "delegate") {
             setPlannerSteps((s) => {
               const next = [...s];
@@ -966,6 +982,7 @@ export default function App() {
             </div>
           ))}
           {plannerSteps.length > 0 && <PlannerSteps steps={plannerSteps} />}
+          {toolLog.length > 0 && streaming && <ToolLogPanel log={toolLog} />}
           {streaming && (
             <div className="msg msg-assistant streaming">
               <div className="role">Raphael (생성 중...)</div>
@@ -1298,5 +1315,31 @@ function SidebarStats({ healthy }: { healthy: boolean }) {
       <span>{stats.calls.toLocaleString()} calls</span>
       <span>{stats.tokens >= 1000 ? `${(stats.tokens / 1000).toFixed(1)}k` : stats.tokens} tok</span>
     </div>
+  );
+}
+
+function ToolLogPanel({
+  log,
+}: {
+  log: { type: "call" | "result" | "model"; name: string; detail: string; ts: number }[];
+}) {
+  if (log.length === 0) return null;
+  return (
+    <details className="tool-log" open>
+      <summary>
+        행동 과정 ({log.filter((e) => e.type === "call").length}개 도구 호출)
+      </summary>
+      <div className="tool-log-entries">
+        {log.map((e, i) => (
+          <div key={i} className={`tool-log-entry tool-log-${e.type}`}>
+            <span className="tool-log-icon">
+              {e.type === "call" ? "🔧" : e.type === "result" ? "📄" : "🔄"}
+            </span>
+            <span className="tool-log-name">{e.name}</span>
+            <span className="tool-log-detail">{e.detail}</span>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }

@@ -557,9 +557,11 @@ body {
 }
 .composer-attach {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-right: 6px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-right: 10px;
+  align-items: center;
 }
 .card-grid {
   display: grid;
@@ -853,13 +855,16 @@ body {
 .tool-btn {
   background: transparent;
   border: 1px solid var(--input-border);
-  border-radius: 5px;
-  padding: 4px 10px;
-  font-size: 12px;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 14px;
   color: var(--text-sub);
   cursor: pointer;
+  min-width: 36px;
+  text-align: center;
+  transition: background 0.12s, border-color 0.12s;
 }
-.tool-btn:hover:not(:disabled) { background: #f1f2f5; }
+.tool-btn:hover:not(:disabled) { background: var(--hover-bg); border-color: var(--primary); }
 .tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .model-list button {
   margin-left: auto;
@@ -1294,3 +1299,44 @@ pre:hover .code-copy { opacity: 1; }
   border: 1px solid var(--border);
   color: var(--text);
 }
+
+.tool-log {
+  max-width: 880px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.tool-log > summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--text-sub);
+  padding: 4px 0;
+}
+.tool-log-entries {
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+  margin-top: 4px;
+}
+.tool-log-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+  line-height: 1.4;
+}
+.tool-log-icon { flex-shrink: 0; }
+.tool-log-name {
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-weight: 600;
+  color: var(--text);
+  flex-shrink: 0;
+}
+.tool-log-detail {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 600px;
+}
+.tool-log-model .tool-log-name { color: var(--primary); }
+.tool-log-result .tool-log-detail { color: var(--text-sub); }

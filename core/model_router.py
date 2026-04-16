@@ -352,6 +352,7 @@ class ModelRouter:
         self,
         messages: list[dict],
         model_key: str | None = None,
+        images: list[str] | None = None,
         **kwargs,
     ) -> AsyncIterator[dict]:
         """스트리밍. provider별 분기."""
@@ -372,6 +373,23 @@ class ModelRouter:
             return
 
         model_name = cfg["name"]
+
+        if images:
+            messages = [dict(m) for m in messages]
+            for m in reversed(messages):
+                if m.get("role") == "user":
+                    encoded = []
+                    for img in images:
+                        if img.startswith("data:") or len(img) > 1000:
+                            encoded.append(img)
+                        else:
+                            import base64 as _b64
+                            from pathlib import Path as _Path
+                            data = _Path(img).expanduser().read_bytes()
+                            encoded.append(_b64.b64encode(data).decode("ascii"))
+                    m["images"] = encoded
+                    break
+
         payload = {
             "model": model_name,
             "messages": messages,

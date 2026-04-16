@@ -461,6 +461,7 @@ export const api = {
       onDone?: () => void;
       onToolCall?: (data: any) => void;
       onToolResult?: (data: any) => void;
+      onModelCall?: (data: { model: string; iteration: number }) => void;
       onApproval?: (data: {
         token: string;
         tool: string;
@@ -502,6 +503,9 @@ export const api = {
               break;
             case "tool_result":
               handlers.onToolResult?.(ev.data);
+              break;
+            case "model_call_start":
+              handlers.onModelCall?.(ev.data);
               break;
             case "approval_required":
               handlers.onApproval?.(ev.data);
