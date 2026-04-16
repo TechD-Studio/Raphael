@@ -12,10 +12,8 @@ import { confirmDialog } from "./confirm";
 type Tab =
   | "failures"
   | "checkpoints"
-  | "audit"
-  | "activity"
-  | "system"
-  | "tools";
+  | "logs"
+  | "system";
 
 export default function Dashboard({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("failures");
@@ -40,16 +38,10 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
             체크포인트
           </button>
           <button
-            className={tab === "audit" ? "active" : ""}
-            onClick={() => setTab("audit")}
+            className={tab === "logs" ? "active" : ""}
+            onClick={() => setTab("logs")}
           >
-            Audit
-          </button>
-          <button
-            className={tab === "activity" ? "active" : ""}
-            onClick={() => setTab("activity")}
-          >
-            활동 로그
+            로그
           </button>
           <button
             className={tab === "system" ? "active" : ""}
@@ -57,22 +49,14 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
           >
             시스템
           </button>
-          <button
-            className={tab === "tools" ? "active" : ""}
-            onClick={() => setTab("tools")}
-          >
-            도구
-          </button>
         </nav>
       </header>
       <main className="settings-body">
         {tab === "failures" && <FailuresTab />}
         {/* AbTab removed */}
         {tab === "checkpoints" && <CheckpointsTab />}
-        {tab === "audit" && <AuditTab />}
-        {tab === "activity" && <ActivityTab />}
+        {tab === "logs" && <LogsTab />}
         {tab === "system" && <SystemTab />}
-        {tab === "tools" && <ToolsTab />}
       </main>
     </div>
   );
@@ -339,6 +323,32 @@ function CheckpointsTab() {
           </tbody>
         </table>
       )}
+    </>
+  );
+}
+
+function LogsTab() {
+  const [sub, setSub] = useState<"audit" | "activity">("audit");
+  return (
+    <>
+      <div className="panel-toolbar" style={{ display: "flex", gap: 6 }}>
+        <button
+          className={sub === "audit" ? "primary" : ""}
+          onClick={() => setSub("audit")}
+          style={sub === "audit" ? {} : { background: "#fff", color: "#4b5563", border: "1px solid #d4d7df" }}
+        >
+          Audit
+        </button>
+        <button
+          className={sub === "activity" ? "primary" : ""}
+          onClick={() => setSub("activity")}
+          style={sub === "activity" ? {} : { background: "#fff", color: "#4b5563", border: "1px solid #d4d7df" }}
+        >
+          활동 로그
+        </button>
+      </div>
+      {sub === "audit" && <AuditTab />}
+      {sub === "activity" && <ActivityTab />}
     </>
   );
 }
@@ -932,98 +942,6 @@ function SystemTab() {
       )}
 
     </>
-  );
-}
-
-function ToolsTab() {
-  const [op, setOp] = useState<
-    "md_to_html" | "md_to_pdf" | "csv_to_chart" | "image_resize"
-  >("md_to_html");
-  const [src, setSrc] = useState("");
-  const [dst, setDst] = useState("");
-  const [x, setX] = useState("");
-  const [y, setY] = useState("");
-  const [width, setWidth] = useState(1024);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState("");
-  const [err, setErr] = useState("");
-
-  async function run() {
-    if (!src.trim()) {
-      setErr("src 경로 필수");
-      return;
-    }
-    setBusy(true);
-    setErr("");
-    setResult("");
-    try {
-      const r = await api.convertFile({ operation: op, src, dst, x, y, width });
-      setResult(`✓ ${r.output}`);
-    } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="agent-editor">
-      <h3 style={{ marginTop: 0 }}>파일 변환</h3>
-      <p className="muted">
-        로컬 파일 경로를 입력해 변환합니다. allowed_paths 샌드박스가 적용됩니다.
-      </p>
-      {err && <div className="err">{err}</div>}
-      {result && <div className="ok-msg">{result}</div>}
-      <label>
-        작업
-        <select value={op} onChange={(e) => setOp(e.target.value as any)}>
-          <option value="md_to_html">Markdown → HTML</option>
-          <option value="md_to_pdf">Markdown → PDF</option>
-          <option value="csv_to_chart">CSV → Chart (PNG)</option>
-          <option value="image_resize">이미지 크기 조정</option>
-        </select>
-      </label>
-      <label>
-        원본 (src)
-        <input
-          value={src}
-          onChange={(e) => setSrc(e.target.value)}
-          placeholder="예: /Users/dh/doc.md"
-        />
-      </label>
-      <label>
-        출력 (dst){" "}
-        <span className="muted">(비워두면 자동 — 원본 옆에 생성)</span>
-        <input value={dst} onChange={(e) => setDst(e.target.value)} />
-      </label>
-      {op === "csv_to_chart" && (
-        <>
-          <label>
-            x 컬럼
-            <input value={x} onChange={(e) => setX(e.target.value)} />
-          </label>
-          <label>
-            y 컬럼
-            <input value={y} onChange={(e) => setY(e.target.value)} />
-          </label>
-        </>
-      )}
-      {op === "image_resize" && (
-        <label>
-          가로 폭 (px)
-          <input
-            type="number"
-            value={width}
-            onChange={(e) => setWidth(parseInt(e.target.value) || 1024)}
-          />
-        </label>
-      )}
-      <div className="row">
-        <button className="primary" onClick={run} disabled={busy}>
-          {busy ? "변환 중..." : "변환"}
-        </button>
-      </div>
-    </div>
   );
 }
 

@@ -105,31 +105,6 @@ export interface ModelsInfo {
   available: string[];
 }
 
-export interface AbResultSummary {
-  file: string;
-  scenario_id: number | null;
-  title: string;
-  mtime: number;
-  models: string[];
-  success_count: number;
-  total: number;
-}
-
-export interface AbRunResult {
-  model: string;
-  success: boolean;
-  duration?: number;
-  response_len?: number;
-  final_model?: string;
-  error?: string;
-}
-
-export interface AbResultDetail {
-  scenario_id: number;
-  title: string;
-  results: AbRunResult[];
-}
-
 export interface ActivityEntry {
   ts?: string;
   type?: string;
@@ -247,9 +222,6 @@ export const api = {
       "/models/token-stats",
     ),
 
-  abResults: () => jget<AbResultSummary[]>("/ab-results"),
-  abResult: (name: string) =>
-    jget<AbResultDetail>(`/ab-results/${encodeURIComponent(name)}`),
 
   activity: (tail = 200, session = "") =>
     jget<ActivityEntry[]>(

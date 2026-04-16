@@ -448,8 +448,6 @@ def list_models():
     }
 
 
-def _ab_results_dir() -> Path:
-    return Path.home() / ".raphael" / "ab_results"
 
 
 @app.get("/activity")
@@ -592,43 +590,6 @@ def clear_failures():
             p.unlink()
             count += 1
     return {"deleted": count}
-
-
-@app.get("/ab-results")
-def list_ab_results():
-    d = _ab_results_dir()
-    if not d.exists():
-        return []
-    out = []
-    for p in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            results = data.get("results", [])
-            out.append({
-                "file": p.name,
-                "scenario_id": data.get("scenario_id"),
-                "title": data.get("title", ""),
-                "mtime": p.stat().st_mtime,
-                "models": [r.get("model") for r in results],
-                "success_count": sum(1 for r in results if r.get("success")),
-                "total": len(results),
-            })
-        except Exception as e:
-            logger.debug(f"ab-result 읽기 실패 {p.name}: {e}")
-    return out
-
-
-@app.get("/ab-results/{name}")
-def get_ab_result(name: str):
-    if "/" in name or ".." in name:
-        raise HTTPException(400, "invalid name")
-    p = _ab_results_dir() / name
-    if not p.exists():
-        raise HTTPException(404, "not found")
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except Exception as e:
-        raise HTTPException(500, f"parse error: {e}")
 
 
 @app.get("/rag/status")

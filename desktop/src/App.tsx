@@ -156,6 +156,25 @@ export default function App() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, streamBuf]);
 
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.querySelectorAll("pre").forEach((pre) => {
+      if (pre.querySelector(".code-copy")) return;
+      const btn = document.createElement("button");
+      btn.className = "code-copy";
+      btn.textContent = "Copy";
+      btn.addEventListener("click", async () => {
+        const code = pre.querySelector("code");
+        await navigator.clipboard.writeText(code?.textContent || pre.textContent || "");
+        btn.textContent = "✓";
+        setTimeout(() => (btn.textContent = "Copy"), 1500);
+      });
+      pre.style.position = "relative";
+      pre.appendChild(btn);
+    });
+  }, [messages]);
+
   async function refreshSessions() {
     try {
       setSessions(await api.sessions());
@@ -233,16 +252,31 @@ export default function App() {
     }
   }
 
-  async function sendMessage() {
-    if ((!input.trim() && pendingImages.length === 0) || streaming) return;
-    const text = input.trim();
-    const imgs = pendingImages;
-    setInput("");
-    setPendingImages([]);
-    const userContent =
-      imgs.length > 0
-        ? `${text}${text ? "\n\n" : ""}_(첨부 이미지 ${imgs.length}개)_`
-        : text;
+  const lastUserText = useRef("");
+
+  async function regenerate() {
+    if (streaming || messages.length < 2) return;
+    const trimmed = [...messages];
+    if (trimmed[trimmed.length - 1].role === "assistant") trimmed.pop();
+    if (trimmed[trimmed.length - 1]?.role === "user") {
+      lastUserText.current = trimmed[trimmed.length - 1].content
+        .replace(/\n\n_\(첨부 이미지 \d+개\)_$/, "")
+        .trim();
+      trimmed.pop();
+    }
+    if (!lastUserText.current) return;
+    setMessages(trimmed);
+    setInput(lastUserText.current);
+    requestAnimationFrame(() => {
+      setInput("");
+      const text = lastUserText.current;
+      lastUserText.current = "";
+      doSend(text);
+    });
+  }
+
+  async function doSend(text: string, imgs: string[] = []) {
+    const userContent = imgs.length > 0 ? `${text}${text ? "\n\n" : ""}_(첨부 이미지 ${imgs.length}개)_` : text;
     setMessages((m) => [...m, { role: "user", content: userContent }]);
     setStreaming(true);
     setStreamBuf("");
@@ -250,62 +284,33 @@ export default function App() {
     setPlannerSteps([]);
     let buf = "";
     try {
-      await api.sendMessage(
-        activeSid,
-        text,
-        targetAgent || undefined,
-        {
-          onChunk: (t) => {
-            buf += t;
-            setStreamBuf(buf);
-          },
-          onToolCall: (d) => {
-            setTools((tt) => [...tt, `🔧 ${d?.name ?? "?"}`]);
-            if (d?.name === "delegate") {
-              const args = d?.args || {};
-              setPlannerSteps((s) => [
-                ...s,
-                {
-                  agent: args.agent || "?",
-                  task: args.task || "",
-                  status: "running",
-                },
-              ]);
-            }
-          },
-          onToolResult: (d) => {
-            if (d?.name === "delegate") {
-              setPlannerSteps((s) => {
-                const next = [...s];
-                for (let i = next.length - 1; i >= 0; i--) {
-                  if (next[i].status === "running") {
-                    next[i] = {
-                      ...next[i],
-                      status: d?.error ? "error" : "done",
-                      output: d?.error || d?.output || "",
-                    };
-                    break;
-                  }
-                }
-                return next;
-              });
-            }
-          },
-          onApproval: (d) => {
-            setPendingApproval(d);
-          },
-          onFinal: (full) => {
-            buf = full;
-            setStreamBuf(full);
-          },
+      await api.sendMessage(activeSid, text, targetAgent || undefined, {
+        onChunk: (t) => { buf += t; setStreamBuf(buf); },
+        onToolCall: (d) => {
+          setTools((tt) => [...tt, `🔧 ${d?.name ?? "?"}`]);
+          if (d?.name === "delegate") {
+            setPlannerSteps((s) => [...s, { agent: d?.args?.agent || "?", task: d?.args?.task || "", status: "running" }]);
+          }
         },
-        imgs,
-        activeSkill || undefined,
-      );
+        onToolResult: (d) => {
+          if (d?.name === "delegate") {
+            setPlannerSteps((s) => {
+              const next = [...s];
+              for (let i = next.length - 1; i >= 0; i--) {
+                if (next[i].status === "running") {
+                  next[i] = { ...next[i], status: d?.error ? "error" : "done", output: d?.error || d?.output || "" };
+                  break;
+                }
+              }
+              return next;
+            });
+          }
+        },
+        onApproval: (d) => setPendingApproval(d),
+        onFinal: (full) => { buf = full; setStreamBuf(full); },
+      }, imgs, activeSkill || undefined);
       setMessages((m) => [...m, { role: "assistant", content: buf || "(빈 응답)" }]);
-      if (ttsEnabled && buf) {
-        api.tts(buf).catch(() => {});
-      }
+      if (ttsEnabled && buf) api.tts(buf).catch(() => {});
     } catch (e) {
       setMessages((m) => [...m, { role: "assistant", content: `⚠ 오류: ${e}` }]);
     } finally {
@@ -314,6 +319,15 @@ export default function App() {
       setTools([]);
       await refreshSessions();
     }
+  }
+
+  async function sendMessage() {
+    if ((!input.trim() && pendingImages.length === 0) || streaming) return;
+    const text = input.trim();
+    const imgs = [...pendingImages];
+    setInput("");
+    setPendingImages([]);
+    await doSend(text, imgs);
   }
 
   async function changeModel(key: string) {
@@ -845,12 +859,20 @@ export default function App() {
                 </ReactMarkdown>
               </div>
               {m.role === "assistant" && (
-                <FeedbackBar
-                  session={activeSid}
-                  agent={targetAgent}
-                  question={i > 0 ? messages[i - 1].content : ""}
-                  response={m.content}
-                />
+                <div className="msg-actions">
+                  <CopyButton text={m.content} />
+                  {i === messages.length - 1 && !streaming && (
+                    <button className="copy-btn" onClick={regenerate} title="재생성">
+                      ♻
+                    </button>
+                  )}
+                  <FeedbackBar
+                    session={activeSid}
+                    agent={targetAgent}
+                    question={i > 0 ? messages[i - 1].content : ""}
+                    response={m.content}
+                  />
+                </div>
               )}
             </div>
           ))}
@@ -1130,5 +1152,23 @@ function PlannerSteps({
         </div>
       ))}
     </div>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  }
+
+  return (
+    <button className="copy-btn" onClick={copy} title="복사">
+      {copied ? "✓" : "📋"}
+    </button>
   );
 }

@@ -963,3 +963,36 @@ body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
 }
+
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.copy-btn {
+  background: transparent;
+  border: 1px solid #e7e9ef;
+  border-radius: 12px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #6c707b;
+}
+.copy-btn:hover { background: #f5f7ff; border-color: #6366f1; }
+.code-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(255,255,255,0.12);
+  color: #ccc;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+pre:hover .code-copy { opacity: 1; }
+.code-copy:hover { background: rgba(255,255,255,0.25); color: #fff; }

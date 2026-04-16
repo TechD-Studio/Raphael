@@ -4,7 +4,6 @@ import {
   type AgentDetail,
   type AgentInfo,
   type AgentUpsert,
-  type HookWatch,
   type ModelsInfo,
   type PoolServer,
   type ProfileFact,
@@ -17,15 +16,9 @@ import { confirmDialog } from "./confirm";
 type Tab =
   | "agents"
   | "skills"
-  | "hooks"
-  | "profile"
   | "models"
-  | "routing"
-  | "pool"
   | "server"
-  | "rag"
-  | "security"
-  | "update";
+  | "rag";
 
 export default function Settings({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("agents");
@@ -51,34 +44,10 @@ export default function Settings({ onBack }: { onBack: () => void }) {
             스킬
           </button>
           <button
-            className={tab === "hooks" ? "active" : ""}
-            onClick={() => setTab("hooks")}
-          >
-            훅
-          </button>
-          <button
-            className={tab === "profile" ? "active" : ""}
-            onClick={() => setTab("profile")}
-          >
-            프로필
-          </button>
-          <button
             className={tab === "models" ? "active" : ""}
             onClick={() => setTab("models")}
           >
             모델
-          </button>
-          <button
-            className={tab === "routing" ? "active" : ""}
-            onClick={() => setTab("routing")}
-          >
-            라우팅
-          </button>
-          <button
-            className={tab === "pool" ? "active" : ""}
-            onClick={() => setTab("pool")}
-          >
-            풀
           </button>
           <button
             className={tab === "server" ? "active" : ""}
@@ -92,32 +61,34 @@ export default function Settings({ onBack }: { onBack: () => void }) {
           >
             RAG
           </button>
-          <button
-            className={tab === "security" ? "active" : ""}
-            onClick={() => setTab("security")}
-          >
-            보안
-          </button>
-          <button
-            className={tab === "update" ? "active" : ""}
-            onClick={() => setTab("update")}
-          >
-            업데이트
-          </button>
         </nav>
       </header>
       <main className="settings-body">
-        {tab === "agents" && <AgentsPanel />}
+        {tab === "agents" && (
+          <>
+            <AgentsPanel />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
+            <ProfilePanel />
+          </>
+        )}
         {tab === "skills" && <SkillsPanel />}
-        {tab === "hooks" && <HooksPanel />}
-        {tab === "profile" && <ProfilePanel />}
-        {tab === "models" && <ModelsPanel />}
-        {tab === "routing" && <RoutingPanel />}
-        {tab === "pool" && <PoolPanel />}
-        {tab === "server" && <ServerPanel />}
+        {tab === "models" && (
+          <>
+            <ModelsPanel />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
+            <RoutingPanel />
+          </>
+        )}
+        {tab === "server" && (
+          <>
+            <ServerPanel />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
+            <PoolPanel />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
+            <SecurityPanel />
+          </>
+        )}
         {tab === "rag" && <RagPanel />}
-        {tab === "security" && <SecurityPanel />}
-        {tab === "update" && <UpdatePanel />}
       </main>
     </div>
   );
@@ -808,14 +779,6 @@ const ROUTING_SLOTS: Slot[] = [
   },
 ];
 
-const RECOMMENDED_SLOT_MODELS: Record<string, string> = {
-  short: "gemma4-e2b",
-  review: "claude-sonnet",
-  project: "claude-opus",
-  long_chat: "gemma4-26b",
-  default: "gemma4-e4b",
-};
-
 function matchEquals(a: Record<string, any>, b: Record<string, any>): boolean {
   const ak = Object.keys(a).sort();
   const bk = Object.keys(b).sort();
@@ -866,12 +829,6 @@ function RoutingPanel() {
   useEffect(() => {
     reload();
   }, []);
-
-  function applyRecommended() {
-    setStrategy("auto");
-    setSlotModels({ ...RECOMMENDED_SLOT_MODELS });
-    setMsg("추천 매핑이 적용되었습니다. '저장'을 눌러 반영하세요.");
-  }
 
   async function save() {
     setSaving(true);
@@ -962,9 +919,6 @@ function RoutingPanel() {
         </button>
         <button onClick={reload} disabled={saving}>
           다시 불러오기
-        </button>
-        <button onClick={applyRecommended} disabled={saving}>
-          추천 적용
         </button>
       </div>
     </div>
@@ -1587,163 +1541,6 @@ function PoolPanel() {
   );
 }
 
-function HooksPanel() {
-  const [watches, setWatches] = useState<HookWatch[]>([]);
-  const [err, setErr] = useState("");
-  const [msg, setMsg] = useState("");
-  const [loaded, setLoaded] = useState(false);
-
-  async function refresh() {
-    try {
-      const r = await api.hookWatches();
-      setWatches(r.watches);
-      setErr("");
-    } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setLoaded(true);
-    }
-  }
-
-  useEffect(() => {
-    refresh();
-  }, []);
-
-  function update(i: number, patch: Partial<HookWatch>) {
-    const next = [...watches];
-    next[i] = { ...next[i], ...patch };
-    setWatches(next);
-  }
-
-  function add() {
-    setWatches([
-      ...watches,
-      {
-        path: "~/projects/myrepo",
-        patterns: ["*.py"],
-        events: ["modified", "created"],
-        agent: "",
-        prompt: "파일 {path}가 {event}되었습니다.",
-        debounce_seconds: 3,
-      },
-    ]);
-  }
-
-  function remove(i: number) {
-    setWatches(watches.filter((_, idx) => idx !== i));
-  }
-
-  async function save() {
-    try {
-      await api.saveHookWatches(watches);
-      setMsg("저장됨. raphael watch 재시작 필요.");
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  }
-
-  if (!loaded) return <div className="muted">불러오는 중...</div>;
-
-  return (
-    <div>
-      <p className="muted">
-        파일 시스템 변경 시 자동으로 에이전트를 호출합니다. 별도{" "}
-        <code>raphael watch</code> 프로세스 실행 필요.
-      </p>
-      {err && <div className="err">{err}</div>}
-      {msg && <div className="ok-msg">{msg}</div>}
-
-      {watches.map((w, i) => (
-        <div key={i} className="rule-card">
-          <div className="rule-head">
-            <span className="muted">#{i + 1}</span>
-            <code style={{ fontSize: 12 }}>{w.path}</code>
-            <div style={{ flex: 1 }} />
-            <button onClick={() => remove(i)}>삭제</button>
-          </div>
-          <div className="rule-body">
-            <div className="rule-col">
-              <label>
-                경로
-                <input
-                  value={w.path}
-                  onChange={(e) => update(i, { path: e.target.value })}
-                />
-              </label>
-              <label>
-                패턴 (쉼표 구분)
-                <input
-                  value={w.patterns.join(", ")}
-                  onChange={(e) =>
-                    update(i, {
-                      patterns: e.target.value
-                        .split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                  placeholder="*.py, *.md"
-                />
-              </label>
-              <label>
-                이벤트 (쉼표 구분)
-                <input
-                  value={w.events.join(", ")}
-                  onChange={(e) =>
-                    update(i, {
-                      events: e.target.value
-                        .split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                  placeholder="modified, created, deleted"
-                />
-              </label>
-              <label>
-                Debounce (s)
-                <input
-                  type="number"
-                  value={w.debounce_seconds}
-                  onChange={(e) =>
-                    update(i, {
-                      debounce_seconds: parseInt(e.target.value) || 3,
-                    })
-                  }
-                />
-              </label>
-            </div>
-            <div className="rule-col">
-              <label>
-                에이전트
-                <input
-                  value={w.agent}
-                  onChange={(e) => update(i, { agent: e.target.value })}
-                />
-              </label>
-              <label>
-                프롬프트 ({"{path}"} {"{event}"} 사용 가능)
-                <textarea
-                  value={w.prompt}
-                  onChange={(e) => update(i, { prompt: e.target.value })}
-                  rows={4}
-                />
-              </label>
-            </div>
-          </div>
-        </div>
-      ))}
-
-      <div className="row">
-        <button onClick={add}>+ 훅 추가</button>
-        <button className="primary" onClick={save}>
-          저장
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function ServerPanel() {
   const [form, setForm] = useState<{
     host: string;
@@ -1835,55 +1632,3 @@ function ServerPanel() {
   );
 }
 
-function UpdatePanel() {
-  const [updating, setUpdating] = useState(false);
-  const [msg, setMsg] = useState("");
-
-  async function runUpdate() {
-    if (!(await confirmDialog("git pull + pip install -e . 를 실행합니다. 계속?", { okLabel: "실행" }))) return;
-    setUpdating(true);
-    setMsg("");
-    try {
-      const r = await api.systemUpdate();
-      setMsg(
-        (r.ok ? "✓ " : "✗ ") +
-          [r.pull, r.pip, r.note, r.error, r.output]
-            .filter(Boolean)
-            .join("\n\n"),
-      );
-    } catch (e: any) {
-      setMsg(`오류: ${e.message}`);
-    } finally {
-      setUpdating(false);
-    }
-  }
-
-  return (
-    <div className="agent-editor">
-      <h3 style={{ marginTop: 0 }}>업데이트</h3>
-      <p className="muted">
-        git pull + pip install -e . 를 실행합니다. 완료 후 앱 재시작이 필요합니다.
-      </p>
-      <div className="row">
-        <button className="primary" onClick={runUpdate} disabled={updating}>
-          {updating ? "업데이트 중..." : "지금 업데이트"}
-        </button>
-      </div>
-      {msg && (
-        <pre
-          style={{
-            marginTop: 12,
-            background: "#f9fafb",
-            border: "1px solid #e7e9ef",
-            borderRadius: 6,
-            padding: 10,
-            fontSize: 12,
-            whiteSpace: "pre-wrap",
-          }}
-        >
-          {msg}
-        </pre>
-      )}
-    </div>
-  );
-}
