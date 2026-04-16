@@ -145,12 +145,12 @@ class ImageGenTool:
 
         cmd = [
             "mflux-generate",
-            "--base-model", "schnell",
+            "--model", "black-forest-labs/FLUX.1-schnell",
             "--quantize", "4",
             "--prompt", prompt,
             "--width", str(w),
             "--height", str(h),
-            "--steps", "4",
+            "--steps", "2",
             "--seed", str(seed),
             "--output", str(out_path),
         ]
