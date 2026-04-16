@@ -429,6 +429,20 @@ async def _dispatch(call: ToolCall, registry: ToolRegistry) -> str:
             query, max_results=max_results, auto_fetch=auto_fetch,
         )
 
+    if name == "generate_image":
+        prompt = _require(args, "prompt")
+        neg = args.get("negative_prompt", "")
+        size = args.get("size", "")
+        backend = args.get("backend", "")
+        result = await registry.get("image_gen").generate(prompt, neg, size, backend or None)
+        if result.get("ok"):
+            parts = [f"이미지 생성 완료 ({result.get('backend')}/{result.get('model')})"]
+            parts.append(f"저장 경로: {result.get('path')}")
+            if result.get("revised_prompt"):
+                parts.append(f"수정된 프롬프트: {result['revised_prompt']}")
+            return "\n".join(parts)
+        return f"이미지 생성 실패: {result.get('error')}"
+
     raise ValueError(f"알 수 없는 도구: {name}")
 
 

@@ -86,6 +86,8 @@ export default function Settings({ onBack }: { onBack: () => void }) {
             <PoolPanel />
             <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
             <SecurityPanel />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid var(--border)" }} />
+            <ImageGenPanel />
           </>
         )}
         {tab === "rag" && <RagPanel />}
@@ -1631,3 +1633,103 @@ function ServerPanel() {
   );
 }
 
+
+function ImageGenPanel() {
+  const [cfg, setCfg] = useState({
+    backend: "auto",
+    local_model: "",
+    openai_model: "dall-e-3",
+    default_size: "1024x1024",
+  });
+  const [backends, setBackends] = useState<
+    { id: string; name: string; available: boolean; model: string; cost: string }[]
+  >([]);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [c, b] = await Promise.all([
+          api.imageGenSettings(),
+          api.imageBackends(),
+        ]);
+        setCfg(c);
+        setBackends(b);
+      } catch (e: any) {
+        setErr(e.message);
+      }
+    })();
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    setErr("");
+    setMsg("");
+    try {
+      await api.saveImageGenSettings(cfg);
+      setMsg("저장됨");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="agent-editor">
+      <h3>이미지 생성</h3>
+      <p className="muted">
+        채팅에서 "그림 그려줘" 요청 시 사용할 백엔드를 설정합니다.
+      </p>
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="ok-msg">{msg}</div>}
+
+      {backends.length > 0 && (
+        <div className="info-box" style={{ borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 13 }}>
+          {backends.map((b) => (
+            <div key={b.id} style={{ marginBottom: 4 }}>
+              <strong>{b.name}</strong>:{" "}
+              {b.available ? (
+                <span style={{ color: "#16a34a" }}>사용 가능 ({b.model})</span>
+              ) : (
+                <span style={{ color: "#dc2626" }}>미설정</span>
+              )}{" "}
+              — {b.cost}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <label>
+        백엔드
+        <select
+          value={cfg.backend}
+          onChange={(e) => setCfg({ ...cfg, backend: e.target.value })}
+        >
+          <option value="auto">auto (키 있으면 OpenAI, 없으면 로컬)</option>
+          <option value="local">로컬 (MLX — 무료)</option>
+          <option value="openai">OpenAI DALL-E 3 (~$0.04/장)</option>
+        </select>
+      </label>
+      <label>
+        기본 크기
+        <select
+          value={cfg.default_size}
+          onChange={(e) => setCfg({ ...cfg, default_size: e.target.value })}
+        >
+          <option value="512x512">512x512 (로컬 빠름)</option>
+          <option value="1024x1024">1024x1024 (기본)</option>
+          <option value="1024x1792">1024x1792 (세로)</option>
+          <option value="1792x1024">1792x1024 (가로)</option>
+        </select>
+      </label>
+      <div className="row">
+        <button className="primary" onClick={save} disabled={saving}>
+          {saving ? "저장 중..." : "저장"}
+        </button>
+      </div>
+    </div>
+  );
+}

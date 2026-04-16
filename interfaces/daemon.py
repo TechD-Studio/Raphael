@@ -949,6 +949,98 @@ def take_screenshot():
             pass
 
 
+@app.get("/file-preview")
+def file_preview(path: str):
+    """로컬 파일을 HTTP로 서빙 (이미지 프리뷰용). allowed_paths 검증."""
+    from pathlib import Path as _P
+    from fastapi.responses import FileResponse
+    from tools.path_guard import check_path
+
+    p = _P(path).expanduser().resolve()
+    try:
+        check_path(str(p))
+    except Exception:
+        raise HTTPException(403, "path not allowed")
+    if not p.exists():
+        raise HTTPException(404, "file not found")
+    suffix = p.suffix.lower()
+    media = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+    }.get(suffix, "application/octet-stream")
+    return FileResponse(str(p), media_type=media)
+
+
+class ImageGenReq(BaseModel):
+    prompt: str
+    negative_prompt: str = ""
+    size: str = ""
+    backend: str = ""
+
+
+@app.post("/image/generate")
+async def generate_image_endpoint(req: ImageGenReq):
+    from tools.image_gen import ImageGenTool
+
+    tool = ImageGenTool()
+    result = await tool.generate(
+        prompt=req.prompt,
+        negative_prompt=req.negative_prompt,
+        size=req.size,
+        backend=req.backend or None,
+    )
+    if result.get("ok") and result.get("path"):
+        from pathlib import Path as _P
+        p = _P(result["path"])
+        if p.exists():
+            import base64 as _b64
+            b64 = _b64.b64encode(p.read_bytes()).decode("ascii")
+            result["data_url"] = f"data:image/png;base64,{b64}"
+    return result
+
+
+@app.get("/image/backends")
+def list_image_backends():
+    from tools.image_gen import ImageGenTool
+
+    return ImageGenTool().list_backends()
+
+
+class ImageGenSettingsReq(BaseModel):
+    backend: str = "auto"
+    local_model: str = ""
+    openai_model: str = ""
+    default_size: str = ""
+
+
+@app.get("/settings/image-gen")
+def get_image_gen_settings():
+    from config.settings import get_settings
+
+    cfg = (get_settings().get("tools") or {}).get("image_gen") or {}
+    return {
+        "backend": cfg.get("backend", "auto"),
+        "local_model": cfg.get("local_model", ""),
+        "openai_model": cfg.get("openai_model", "dall-e-3"),
+        "default_size": cfg.get("default_size", "1024x1024"),
+    }
+
+
+@app.post("/settings/image-gen")
+def save_image_gen_settings(req: ImageGenSettingsReq):
+    from config.settings import save_local_settings
+
+    overrides: dict = {"tools": {"image_gen": {"backend": req.backend}}}
+    if req.local_model:
+        overrides["tools"]["image_gen"]["local_model"] = req.local_model
+    if req.openai_model:
+        overrides["tools"]["image_gen"]["openai_model"] = req.openai_model
+    if req.default_size:
+        overrides["tools"]["image_gen"]["default_size"] = req.default_size
+    save_local_settings(overrides)
+    return {"ok": True}
+
+
 @app.post("/stt")
 async def stt_endpoint(audio: UploadFile = File(...)):
     """업로드된 오디오를 텍스트로 변환 (whisper)."""

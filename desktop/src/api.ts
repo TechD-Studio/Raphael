@@ -323,6 +323,36 @@ export const api = {
       output?: string;
     }>("/system/update", {}),
 
+  imageBackends: () =>
+    jget<{ id: string; name: string; available: boolean; model: string; cost: string }[]>(
+      "/image/backends",
+    ),
+  imageGenSettings: () =>
+    jget<{ backend: string; local_model: string; openai_model: string; default_size: string }>(
+      "/settings/image-gen",
+    ),
+  saveImageGenSettings: (payload: {
+    backend: string;
+    local_model?: string;
+    openai_model?: string;
+    default_size?: string;
+  }) => jpost<{ ok: boolean }>("/settings/image-gen", payload),
+  generateImage: (payload: {
+    prompt: string;
+    negative_prompt?: string;
+    size?: string;
+    backend?: string;
+  }) =>
+    jpost<{
+      ok: boolean;
+      backend?: string;
+      model?: string;
+      path?: string;
+      data_url?: string;
+      revised_prompt?: string;
+      error?: string;
+    }>("/image/generate", payload),
+
   skills: () => jget<SkillInfo[]>("/skills"),
   skill: (name: string) =>
     jget<SkillDetail>(`/skills/${encodeURIComponent(name)}`),

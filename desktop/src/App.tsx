@@ -953,6 +953,7 @@ export default function App() {
                 <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
                   {m.content}
                 </ReactMarkdown>
+                {m.role === "assistant" && <InlineGeneratedImage text={m.content} />}
               </div>
               {m.role === "user" && i > 0 && !streaming && (
                 <button
@@ -1341,5 +1342,36 @@ function ToolLogPanel({
         ))}
       </div>
     </details>
+  );
+}
+
+function InlineGeneratedImage({ text }: { text: string }) {
+  const match = text.match(/저장 경로:\s*(.+\.png)/);
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!match) return;
+    const path = match[1].trim();
+    (async () => {
+      try {
+        const resp = await fetch(
+          `http://127.0.0.1:8765/file-preview?path=${encodeURIComponent(path)}`,
+        );
+        if (resp.ok) {
+          const blob = await resp.blob();
+          setSrc(URL.createObjectURL(blob));
+        }
+      } catch {
+        // fallback: try as local file URL (Tauri allows file:// in some configs)
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
+  if (!match || !src) return null;
+  return (
+    <div className="generated-image">
+      <img src={src} alt="generated" style={{ maxWidth: "100%", borderRadius: 8, marginTop: 8 }} />
+    </div>
   );
 }

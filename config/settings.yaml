@@ -115,6 +115,14 @@ tools:
     # 백엔드 시도 순서. searxng_url 있으면 [searxng, ddg_html, ddgs] 자동 우선.
     # backend_order: ["searxng", "ddg_html", "ddgs"]
 
+  image_gen:
+    # 이미지 생성 백엔드: "local" (MLX) | "openai" (DALL-E) | "auto" (키 있으면 openai)
+    backend: "auto"
+    local_model: ""           # 비어있으면 mflux → mlx-image 자동 탐색
+    openai_model: "dall-e-3"
+    default_size: "1024x1024"
+    output_dir: "~/.raphael/generated"
+
   file:
     # 파일 도구(read_file/write_file/...)가 접근 가능한 경로 목록.
     # 빈 리스트면 기본값: 사용자 홈(~) + /tmp + /var/folders + 현재 cwd

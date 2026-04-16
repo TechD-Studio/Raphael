@@ -445,6 +445,7 @@ class AgentBase(ABC):
         "converter_tool": {"convert_md_to_html", "convert_md_to_pdf", "convert_csv_to_chart", "image_resize"},
         "voice": {"speak"},
         "fetch_tool": {"fetch_url"},
+        "image_gen": {"generate_image"},
     }
 
     def _is_tool_allowed(self, tool_name: str) -> bool:

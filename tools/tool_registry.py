@@ -68,5 +68,8 @@ def create_default_registry() -> ToolRegistry:
     registry.register("converter_tool", ConverterTool(), "파일 변환 (md→html/pdf, csv→차트)")
     registry.register("fetch_tool", FetchTool(), "URL 컨텐츠 가져오기 + 본문 추출 + 선택 요약")
 
+    from tools.image_gen import ImageGenTool
+    registry.register("image_gen", ImageGenTool(), "이미지 생성 (로컬 MLX / OpenAI DALL-E)")
+
     logger.info(f"기본 툴 레지스트리 생성: {[t['name'] for t in registry.list_tools()]}")
     return registry
