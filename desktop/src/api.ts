@@ -1,5 +1,8 @@
 // Raphael 데몬 API 클라이언트
-const BASE = "http://127.0.0.1:8765";
+const BASE =
+  typeof window !== "undefined" && window.location.pathname.startsWith("/app")
+    ? window.location.origin
+    : "http://127.0.0.1:8765";
 
 export interface SessionMeta {
   id: string;

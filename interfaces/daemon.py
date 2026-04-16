@@ -25,6 +25,7 @@ import typer
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from pydantic import BaseModel
 
@@ -51,11 +52,18 @@ async def _lifespan(_: FastAPI):
 app = FastAPI(title="raphaeld", version="0.1.0", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:1420", "tauri://localhost", "http://tauri.localhost"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# React UI 정적 파일 서빙 — desktop/dist/ 가 있으면 마운트
+_WEB_UI_DIR = Path(__file__).parent.parent / "desktop" / "dist"
+if not _WEB_UI_DIR.exists():
+    import sys as _sys
+    if hasattr(_sys, "_MEIPASS"):
+        _WEB_UI_DIR = Path(_sys._MEIPASS) / "web"
 
 router_inst: ModelRouter | None = None
 orch_inst: Orchestrator | None = None
@@ -1666,10 +1674,34 @@ def use_model(req: ModelUseReq):
 cli = typer.Typer(help="Raphael 데몬 (Tauri 데스크톱 앱용)")
 
 
+def _mount_web_ui():
+    """React UI 정적 서빙 마운트 (API 라우트 등록 후 호출)."""
+    if _WEB_UI_DIR.exists() and (_WEB_UI_DIR / "index.html").exists():
+        from fastapi.responses import FileResponse
+
+        @app.get("/app")
+        async def web_ui_root():
+            return FileResponse(str(_WEB_UI_DIR / "index.html"))
+
+        @app.get("/app/{rest:path}")
+        async def web_ui_catch(rest: str = ""):
+            file_path = _WEB_UI_DIR / rest
+            if file_path.is_file():
+                return FileResponse(str(file_path))
+            return FileResponse(str(_WEB_UI_DIR / "index.html"))
+
+        app.mount("/assets", StaticFiles(directory=str(_WEB_UI_DIR / "assets")), name="web-assets")
+        app.mount("/web", StaticFiles(directory=str(_WEB_UI_DIR), html=True), name="web-root")
+        logger.info(f"Web UI: /app → {_WEB_UI_DIR}")
+
+
+_mount_web_ui()
+
+
 @cli.callback(invoke_without_command=True)
 def serve(
     ctx: typer.Context,
-    host: str = typer.Option("127.0.0.1", "--host"),
+    host: str = typer.Option("0.0.0.0", "--host"),
     port: int = typer.Option(8765, "--port"),
 ):
     """로컬 데몬 시작."""
