@@ -118,11 +118,16 @@ def main_callback(ctx: typer.Context) -> None:
 
 
 @app.command("web")
-def run_web() -> None:
-    """웹 UI 시작."""
-    from interfaces.web_ui import WebUI
-    web = WebUI(cli_module._router, cli_module._orchestrator)
-    web.launch()
+def run_web(
+    host: str = typer.Option("0.0.0.0", "--host"),
+    port: int = typer.Option(8765, "--port"),
+) -> None:
+    """데스크톱 React UI를 웹으로 서빙 (외부 접속 가능)."""
+    from interfaces.daemon import app as daemon_app
+    import uvicorn
+    typer.echo(f"Raphael Web UI → http://{host}:{port}/app")
+    typer.echo(f"API → http://{host}:{port}/healthz")
+    uvicorn.run(daemon_app, host=host, port=port, log_level="info")
 
 
 @app.command("telegram")
