@@ -415,7 +415,7 @@ export const api = {
     ),
 
   listSecrets: () =>
-    jget<{ keys: { key: string; source: string; in_keychain: boolean }[] }>(
+    jget<{ keys: { key: string; source: string; in_keychain: boolean; masked?: string }[] }>(
       "/secrets",
     ),
   setSecret: (key: string, value: string) =>

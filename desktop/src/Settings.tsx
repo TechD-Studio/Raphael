@@ -2001,6 +2001,7 @@ function ImageGenPanel() {
   const [backends, setBackends] = useState<
     { id: string; name: string; available: boolean; model: string; cost: string }[]
   >([]);
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
@@ -2008,10 +2009,16 @@ function ImageGenPanel() {
   useEffect(() => {
     (async () => {
       try {
-        const [c, b] = await Promise.all([
+        const [c, b, s] = await Promise.all([
           api.imageGenSettings(),
           api.imageBackends(),
+          api.listSecrets(),
         ]);
+        const sm: Record<string, string> = {};
+        for (const k of s.keys) {
+          if (k.in_keychain) sm[k.key] = k.masked || "설정됨";
+        }
+        setSecrets(sm);
         setCfg(c);
         setBackends(b);
       } catch (e: any) {
@@ -2088,25 +2095,33 @@ function ImageGenPanel() {
         입력 후 포커스를 빼면 자동 저장됩니다.
       </p>
       <label>
-        OPENAI_API_KEY
+        OPENAI_API_KEY {secrets["OPENAI_API_KEY"] && <span className="muted"> — 저장됨: {secrets["OPENAI_API_KEY"]}</span>}
         <input
-          placeholder="sk-..."
+          placeholder={secrets["OPENAI_API_KEY"] ? `현재: ${secrets["OPENAI_API_KEY"]}  (새 값 입력 시 덮어씀)` : "sk-..."}
           onBlur={async (e) => {
             const v = e.target.value.trim();
             if (v) {
-              try { await api.setSecret("OPENAI_API_KEY", v); setMsg("OPENAI_API_KEY 저장됨"); } catch (ex: any) { setErr(ex.message); }
+              try {
+                await api.setSecret("OPENAI_API_KEY", v);
+                setSecrets((s) => ({ ...s, OPENAI_API_KEY: v.slice(0, 4) + "..." + v.slice(-4) }));
+                setMsg("OPENAI_API_KEY 저장됨");
+              } catch (ex: any) { setErr(ex.message); }
             }
           }}
         />
       </label>
       <label>
-        HUGGINGFACE_TOKEN
+        HUGGINGFACE_TOKEN {secrets["HUGGINGFACE_TOKEN"] && <span className="muted"> — 저장됨: {secrets["HUGGINGFACE_TOKEN"]}</span>}
         <input
-          placeholder="hf_..."
+          placeholder={secrets["HUGGINGFACE_TOKEN"] ? `현재: ${secrets["HUGGINGFACE_TOKEN"]}  (새 값 입력 시 덮어씀)` : "hf_..."}
           onBlur={async (e) => {
             const v = e.target.value.trim();
             if (v) {
-              try { await api.setSecret("HUGGINGFACE_TOKEN", v); setMsg("HUGGINGFACE_TOKEN 저장됨"); } catch (ex: any) { setErr(ex.message); }
+              try {
+                await api.setSecret("HUGGINGFACE_TOKEN", v);
+                setSecrets((s) => ({ ...s, HUGGINGFACE_TOKEN: v.slice(0, 4) + "..." + v.slice(-4) }));
+                setMsg("HUGGINGFACE_TOKEN 저장됨");
+              } catch (ex: any) { setErr(ex.message); }
             }
           }}
         />

@@ -1614,10 +1614,17 @@ def set_allowed_paths_api(req: AllowedPathsReq):
 
 @app.get("/secrets")
 def list_secrets():
-    """Keychain은 일반 enumeration을 노출하지 않음 — .env fallback으로 알려진 키만 표시."""
+    """알려진 키 + .env 키를 조합하여 표시."""
     from pathlib import Path as _P
 
+    known_keys: set[str] = set()
     known: list[dict] = []
+
+    # Well-known keys
+    for k in ["OPENAI_API_KEY", "HUGGINGFACE_TOKEN", "BRAVE_API_KEY", "TAVILY_API_KEY", "SERPER_API_KEY"]:
+        known_keys.add(k)
+
+    # .env files
     env = _P.home() / ".raphael" / ".env"
     project_env = Path.cwd() / ".env"
     for src_path, source in [(env, "user-env"), (project_env, "project-env")]:
@@ -1626,17 +1633,18 @@ def list_secrets():
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     k, _ = line.split("=", 1)
-                    known.append({"key": k.strip(), "source": source})
+                    known_keys.add(k.strip())
 
-    # Keychain 확인: 각 알려진 키를 실제로 조회해보기
     try:
         from core.secrets import get_secret
 
-        for e in known:
-            if get_secret(e["key"]) is not None:
-                e["in_keychain"] = True
+        for k in sorted(known_keys):
+            val = get_secret(k)
+            if val:
+                masked = val[:4] + "..." + val[-4:] if len(val) > 12 else "****"
+                known.append({"key": k, "source": "keychain", "in_keychain": True, "masked": masked})
             else:
-                e["in_keychain"] = False
+                known.append({"key": k, "source": "미설정", "in_keychain": False, "masked": ""})
     except Exception:
         for e in known:
             e["in_keychain"] = False
