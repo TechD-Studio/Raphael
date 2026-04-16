@@ -560,7 +560,7 @@ export default function App() {
           <div className="approval-dialog">
             <div
               className="approval-title"
-              style={{ color: "#4338ca" }}
+              style={{ color: "var(--primary)" }}
             >
               업데이트 가능: v{updateInfo.version}
             </div>
@@ -580,7 +580,7 @@ export default function App() {
                 <div
                   style={{
                     height: 6,
-                    background: "#eef0f3",
+                    background: "var(--border)",
                     borderRadius: 3,
                     overflow: "hidden",
                   }}
@@ -589,7 +589,7 @@ export default function App() {
                     style={{
                       width: `${updateProgress}%`,
                       height: "100%",
-                      background: "#6366f1",
+                      background: "var(--primary)",
                       transition: "width 0.2s",
                     }}
                   />
@@ -609,7 +609,7 @@ export default function App() {
                   </button>
                   <button
                     className="approval-approve"
-                    style={{ background: "#4338ca" }}
+                    style={{ background: "var(--primary)" }}
                     onClick={installUpdate}
                   >
                     지금 설치

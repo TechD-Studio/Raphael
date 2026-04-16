@@ -1012,9 +1012,8 @@ function RagPanel() {
       {msg && <div className="ok-msg">{msg}</div>}
       {status && (
         <div
+          className="info-box"
           style={{
-            background: "#f9fafb",
-            border: "1px solid #e7e9ef",
             borderRadius: 6,
             padding: 10,
             marginBottom: 12,

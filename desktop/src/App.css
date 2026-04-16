@@ -1066,13 +1066,32 @@ body {
 pre:hover .code-copy { opacity: 1; }
 .code-copy:hover { background: rgba(255,255,255,0.25); color: #fff; }
 
-/* Dark mode: selects and inputs in settings area */
+/* ── Dark Mode Overrides ──────────────────────────────── */
+
+/* Settings: all inputs, selects, textareas */
 [data-theme="dark"] .settings-body select,
-[data-theme="dark"] .settings-body input[type="number"] {
+[data-theme="dark"] .settings-body input,
+[data-theme="dark"] .settings-body textarea,
+[data-theme="dark"] .agent-editor select,
+[data-theme="dark"] .agent-editor input,
+[data-theme="dark"] .agent-editor textarea {
   background: var(--input-bg);
   color: var(--text);
   border-color: var(--input-border);
 }
+
+/* Settings header */
+[data-theme="dark"] .settings-header {
+  background: var(--settings-bg);
+  border-color: var(--border);
+}
+[data-theme="dark"] .settings-header .back-btn {
+  background: var(--bg-card);
+  color: var(--text);
+  border-color: var(--input-border);
+}
+
+/* Agent table */
 [data-theme="dark"] .agent-table button {
   background: var(--bg-card);
   color: var(--text);
@@ -1082,18 +1101,146 @@ pre:hover .code-copy { opacity: 1; }
   background: var(--inline-code-bg);
   color: var(--text);
 }
+
+/* Status/info boxes */
 [data-theme="dark"] .ok-msg {
   background: var(--ok-bg);
   color: #4ade80;
   border-color: #16a34a;
 }
-[data-theme="dark"] .approval-overlay {
-  background: var(--overlay-bg);
+
+/* Chat toolbar selects and buttons */
+[data-theme="dark"] .chat-toolbar select,
+[data-theme="dark"] .chat-toolbar input {
+  background: var(--input-bg);
+  color: var(--text);
+  border-color: var(--input-border);
 }
+[data-theme="dark"] .tool-btn {
+  background: var(--bg-card);
+  color: var(--text);
+  border-color: var(--input-border);
+}
+[data-theme="dark"] .chat-toolbar .tool-btn {
+  background: var(--bg-card);
+  color: var(--text-muted);
+  border-color: var(--input-border);
+}
+
+/* Inline stat cards, info boxes */
+[data-theme="dark"] .stat-card,
+[data-theme="dark"] .card-grid .stat-card {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+[data-theme="dark"] .stat-label { color: var(--text-muted); }
+[data-theme="dark"] .stat-value { color: var(--text); }
+
+/* Planner steps */
+[data-theme="dark"] .planner-steps {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+[data-theme="dark"] .planner-step {
+  background: var(--input-bg);
+}
+[data-theme="dark"] .planner-step-agent {
+  background: var(--tag-bg);
+  color: var(--tag-text);
+}
+
+/* RAG/Security inline panels with hardcoded backgrounds */
+[data-theme="dark"] .agent-editor div[style*="background: #f9fafb"],
+[data-theme="dark"] div[style*="background: #f9fafb"] {
+  background: var(--bg-card) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+/* Token chart modal */
+[data-theme="dark"] .token-chart { color: var(--text); }
+[data-theme="dark"] .token-totals { color: var(--text-sub); border-color: var(--border); }
+[data-theme="dark"] .token-bar { background: var(--border); }
+[data-theme="dark"] .token-legend { color: var(--text-muted); }
+
+/* Approval dialogs */
+[data-theme="dark"] .approval-overlay { background: var(--overlay-bg); }
 [data-theme="dark"] .approval-dialog {
   background: var(--bg-card);
   color: var(--text);
   border: 1px solid var(--border);
+}
+[data-theme="dark"] .approval-title { color: var(--text); }
+[data-theme="dark"] .approval-hint { color: var(--text-muted); }
+[data-theme="dark"] .approval-args {
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-color: var(--border);
+}
+[data-theme="dark"] .approval-actions button {
+  background: var(--bg-card);
+  color: var(--text);
+  border-color: var(--input-border);
+}
+
+/* Routing rule boxes */
+[data-theme="dark"] .rule-head {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+[data-theme="dark"] .rule-body {
+  background: var(--input-bg);
+}
+[data-theme="dark"] .rule-col input,
+[data-theme="dark"] .rule-col select {
+  background: var(--input-bg);
+  color: var(--text);
+  border-color: var(--input-border);
+}
+[data-theme="dark"] .rec-box {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+
+/* Pending images */
+[data-theme="dark"] .pending-image {
+  border-color: var(--border);
+}
+
+/* Search results */
+[data-theme="dark"] .search-results {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+[data-theme="dark"] .search-hit:hover {
+  background: var(--input-bg);
+}
+
+/* Tag filter bar */
+[data-theme="dark"] .tag-filter-bar {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+
+/* Feedback bar */
+[data-theme="dark"] .feedback-bar .fb.on {
+  background: var(--tag-bg);
+  border-color: var(--primary);
+}
+
+/* Panel toolbar buttons (Dashboard) */
+[data-theme="dark"] .panel-toolbar button {
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+/* Badges */
+[data-theme="dark"] .badge {
+  opacity: 0.85;
 }
 
 .chat.drag-over { position: relative; }
@@ -1140,4 +1287,10 @@ pre:hover .code-copy { opacity: 1; }
   background: var(--hover-bg);
   border-color: var(--primary);
   color: var(--primary);
+}
+
+.info-box {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
 }

@@ -177,7 +177,7 @@ function FailuresTab() {
                 </td>
                 <td>{f.turns}</td>
                 <td
-                  style={{ maxWidth: 320, fontSize: 12, color: "#4b5563" }}
+                  style={{ maxWidth: 320, fontSize: 12, color: "var(--text-sub)" }}
                   title={f.user_input}
                 >
                   {f.user_input}
@@ -335,14 +335,14 @@ function LogsTab() {
         <button
           className={sub === "audit" ? "primary" : ""}
           onClick={() => setSub("audit")}
-          style={sub === "audit" ? {} : { background: "#fff", color: "#4b5563", border: "1px solid #d4d7df" }}
+          style={sub === "audit" ? {} : { background: "var(--bg-card)", color: "var(--text-sub)", border: "1px solid var(--input-border)" }}
         >
           Audit
         </button>
         <button
           className={sub === "activity" ? "primary" : ""}
           onClick={() => setSub("activity")}
-          style={sub === "activity" ? {} : { background: "#fff", color: "#4b5563", border: "1px solid #d4d7df" }}
+          style={sub === "activity" ? {} : { background: "var(--bg-card)", color: "var(--text-sub)", border: "1px solid var(--input-border)" }}
         >
           활동 로그
         </button>
@@ -451,7 +451,7 @@ function AuditTab() {
                     fontSize: 11,
                     maxWidth: 360,
                     fontFamily: "ui-monospace, monospace",
-                    color: "#4b5563",
+                    color: "var(--text-sub)",
                   }}
                   title={JSON.stringify(e.data)}
                 >
@@ -461,7 +461,7 @@ function AuditTab() {
                   style={{
                     fontSize: 10,
                     fontFamily: "ui-monospace, monospace",
-                    color: "#9ca3af",
+                    color: "var(--text-muted)",
                   }}
                   title={e.hash}
                 >
@@ -812,7 +812,7 @@ function SystemTab() {
                     padding: 10,
                     border: "1px solid #e7e9ef",
                     borderRadius: 6,
-                    background: "#fafafa",
+                    background: "var(--panel-bg)",
                   }}
                 >
                   <div style={{ fontSize: 13, marginBottom: 6 }}>
@@ -846,7 +846,7 @@ function SystemTab() {
                     <pre
                       style={{
                         marginTop: 8,
-                        background: "#fff",
+                        background: "var(--bg-card)",
                         padding: 8,
                         border: "1px solid #e7e9ef",
                         borderRadius: 4,
@@ -964,7 +964,7 @@ function FailureDetailView({
       </div>
       <div
         style={{
-          background: "#f9fafb",
+          background: "var(--panel-bg)",
           border: "1px solid #e7e9ef",
           borderRadius: 6,
           padding: 12,
@@ -993,7 +993,7 @@ function FailureDetailView({
             style={{
               whiteSpace: "pre-wrap",
               marginTop: 4,
-              background: "#fff",
+              background: "var(--bg-card)",
               padding: 8,
               borderRadius: 4,
               border: "1px solid #e7e9ef",
@@ -1022,7 +1022,7 @@ function FailureDetailView({
             style={{
               fontSize: 11,
               fontWeight: 600,
-              color: "#4b5563",
+              color: "var(--text-sub)",
               marginBottom: 6,
             }}
           >
