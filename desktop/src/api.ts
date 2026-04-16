@@ -328,6 +328,33 @@ export const api = {
   saveEscalation: (ladder: string[]) =>
     jpost<{ ok: boolean; ladder: string[] }>("/settings/escalation", { ladder }),
 
+  finetuneCheck: () =>
+    jget<{ mlx_lm: boolean; llama_cpp: boolean; ollama: boolean }>("/finetune/check"),
+  finetunePrepare: (vault_path: string) =>
+    jpost<{ ok: boolean; total_pairs?: number; train?: number; valid?: number; error?: string }>(
+      "/finetune/prepare", { vault_path },
+    ),
+  finetuneTrain: (params: {
+    base_model?: string; iters?: number; batch_size?: number;
+    lora_layers?: number; learning_rate?: number;
+  }) =>
+    jpost<{ ok: boolean; adapter_name?: string; error?: string; output?: string }>(
+      "/finetune/train", params,
+    ),
+  finetuneBuild: (adapter_name: string, model_name?: string) =>
+    jpost<{ ok: boolean; model_name?: string; error?: string; stage?: string }>(
+      "/finetune/build", { adapter_name, model_name },
+    ),
+  finetuneModels: () =>
+    jget<{ name: string; base_model: string; iters: number; created: string }[]>(
+      "/finetune/models",
+    ),
+  finetuneDelete: async (name: string) => {
+    const r = await fetch(`${BASE}/finetune/${encodeURIComponent(name)}`, { method: "DELETE" });
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  },
+
   imageBackends: () =>
     jget<{ id: string; name: string; available: boolean; model: string; cost: string }[]>(
       "/image/backends",

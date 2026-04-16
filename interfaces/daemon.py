@@ -706,6 +706,68 @@ def save_routing(req: RoutingReq):
     return {"ok": True, "strategy": req.strategy, "rules_count": len(req.rules)}
 
 
+# ── 파인튜닝 ──────────────────────────────────────────────
+
+@app.get("/finetune/check")
+def finetune_check():
+    from tools.finetune import FineTuneTool
+    return FineTuneTool().check_deps()
+
+
+class FtPrepareReq(BaseModel):
+    vault_path: str
+    method: str = "section_qa"
+
+
+@app.post("/finetune/prepare")
+def finetune_prepare(req: FtPrepareReq):
+    from tools.finetune import FineTuneTool
+    return FineTuneTool().prepare(req.vault_path, req.method)
+
+
+class FtTrainReq(BaseModel):
+    base_model: str = "mlx-community/gemma-4-E2B-it-4bit"
+    iters: int = 600
+    batch_size: int = 2
+    lora_layers: int = 16
+    learning_rate: float = 1e-4
+
+
+@app.post("/finetune/train")
+def finetune_train(req: FtTrainReq):
+    from tools.finetune import FineTuneTool
+    return FineTuneTool().train(
+        base_model=req.base_model,
+        iters=req.iters,
+        batch_size=req.batch_size,
+        lora_layers=req.lora_layers,
+        learning_rate=req.learning_rate,
+    )
+
+
+class FtBuildReq(BaseModel):
+    adapter_name: str
+    model_name: str = ""
+
+
+@app.post("/finetune/build")
+def finetune_build(req: FtBuildReq):
+    from tools.finetune import FineTuneTool
+    return FineTuneTool().build(req.adapter_name, req.model_name)
+
+
+@app.get("/finetune/models")
+def finetune_models():
+    from tools.finetune import FineTuneTool
+    return FineTuneTool().list_models()
+
+
+@app.delete("/finetune/{name}")
+def finetune_delete(name: str):
+    from tools.finetune import FineTuneTool
+    return FineTuneTool().delete(name)
+
+
 @app.get("/settings/escalation")
 def get_escalation():
     from config.settings import get_settings

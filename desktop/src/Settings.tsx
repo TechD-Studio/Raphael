@@ -506,6 +506,215 @@ function ModelsPanel() {
         </div>
       )}
       <EscalationEditor available={info.available} />
+      <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid var(--border)" }} />
+      <FineTunePanel />
+    </div>
+  );
+}
+
+function FineTunePanel() {
+  const [deps, setDeps] = useState<{ mlx_lm: boolean; llama_cpp: boolean; ollama: boolean } | null>(null);
+  const [models, setModels] = useState<{ name: string; base_model: string; iters: number; created: string }[]>([]);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [prepResult, setPrepResult] = useState<{ total_pairs: number; train: number; valid: number } | null>(null);
+  const [trainResult, setTrainResult] = useState<{ adapter_name: string } | null>(null);
+  const [vaultPath, setVaultPath] = useState("");
+  const [baseModel, setBaseModel] = useState("mlx-community/gemma-4-E2B-it-4bit");
+  const [iters, setIters] = useState(600);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [d, m] = await Promise.all([api.finetuneCheck(), api.finetuneModels()]);
+        setDeps(d);
+        setModels(m);
+        const ragCfg = await api.ragStatus().catch(() => null);
+        if (ragCfg?.vault_path) setVaultPath(ragCfg.vault_path);
+      } catch {}
+    })();
+  }, []);
+
+  async function prepare() {
+    if (!vaultPath.trim()) { setErr("볼트 경로를 입력하세요"); return; }
+    setBusy(true); setErr(""); setMsg("");
+    try {
+      const r = await api.finetunePrepare(vaultPath);
+      if (r.ok) {
+        setPrepResult({ total_pairs: r.total_pairs!, train: r.train!, valid: r.valid! });
+        setMsg(`${r.total_pairs}쌍 변환 완료 (train: ${r.train}, valid: ${r.valid})`);
+        setStep(2);
+      } else { setErr(r.error || "변환 실패"); }
+    } catch (e: any) { setErr(e.message); }
+    finally { setBusy(false); }
+  }
+
+  async function train() {
+    setBusy(true); setErr(""); setMsg("학습 중... (수 분 ~ 수십 분 소요)");
+    try {
+      const r = await api.finetuneTrain({ base_model: baseModel, iters, batch_size: 2, lora_layers: 16 });
+      if (r.ok) {
+        setTrainResult({ adapter_name: r.adapter_name! });
+        setMsg(`학습 완료: ${r.adapter_name}`);
+        setStep(3);
+      } else { setErr(r.error || "학습 실패"); setMsg(""); }
+    } catch (e: any) { setErr(e.message); setMsg(""); }
+    finally { setBusy(false); }
+  }
+
+  async function build() {
+    if (!trainResult) return;
+    setBusy(true); setErr(""); setMsg("모델 빌드 중...");
+    try {
+      const r = await api.finetuneBuild(trainResult.adapter_name);
+      if (r.ok) {
+        setMsg(`Ollama에 '${r.model_name}' 등록 완료!`);
+        setModels(await api.finetuneModels());
+        setStep(1); setTrainResult(null); setPrepResult(null);
+      } else { setErr(`${r.stage || ""} 실패: ${r.error}`); setMsg(""); }
+    } catch (e: any) { setErr(e.message); setMsg(""); }
+    finally { setBusy(false); }
+  }
+
+  async function remove(name: string) {
+    if (!(await confirmDialog(`${name} 어댑터를 삭제하시겠습니까?`, { danger: true, okLabel: "삭제" }))) return;
+    try {
+      await api.finetuneDelete(name);
+      setModels(await api.finetuneModels());
+    } catch (e: any) { setErr(e.message); }
+  }
+
+  return (
+    <div className="agent-editor">
+      <h3>파인튜닝 (QLoRA)</h3>
+      <p className="muted">
+        옵시디언 노트로 gemma4를 도메인 특화 학습합니다. mlx-lm 필요.
+      </p>
+
+      {deps && (
+        <div className="info-box" style={{ borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 12 }}>
+          <span style={{ color: deps.mlx_lm ? "#16a34a" : "#dc2626" }}>
+            {deps.mlx_lm ? "✓" : "✗"} mlx-lm
+          </span>{" · "}
+          <span style={{ color: deps.llama_cpp ? "#16a34a" : "#dc2626" }}>
+            {deps.llama_cpp ? "✓" : "✗"} llama.cpp
+          </span>{" · "}
+          <span style={{ color: deps.ollama ? "#16a34a" : "#dc2626" }}>
+            {deps.ollama ? "✓" : "✗"} ollama
+          </span>
+        </div>
+      )}
+
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="ok-msg">{msg}</div>}
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {[1, 2, 3].map((s) => (
+          <div
+            key={s}
+            style={{
+              flex: 1,
+              textAlign: "center",
+              padding: "6px 0",
+              borderBottom: `2px solid ${step >= s ? "var(--primary)" : "var(--border)"}`,
+              color: step >= s ? "var(--text)" : "var(--text-muted)",
+              fontSize: 12,
+              fontWeight: step === s ? 600 : 400,
+            }}
+          >
+            {s === 1 ? "데이터 변환" : s === 2 ? "QLoRA 학습" : "모델 빌드"}
+          </div>
+        ))}
+      </div>
+
+      {step === 1 && (
+        <>
+          <label>
+            옵시디언 볼트 경로
+            <input
+              value={vaultPath}
+              onChange={(e) => setVaultPath(e.target.value)}
+              placeholder="/Users/.../Obsidian Vault"
+            />
+          </label>
+          <div className="row">
+            <button className="primary" onClick={prepare} disabled={busy}>
+              {busy ? "변환 중..." : "데이터 변환"}
+            </button>
+          </div>
+        </>
+      )}
+
+      {step === 2 && (
+        <>
+          {prepResult && (
+            <div className="muted" style={{ marginBottom: 8 }}>
+              학습 데이터: {prepResult.total_pairs}쌍 (train: {prepResult.train}, valid: {prepResult.valid})
+            </div>
+          )}
+          <label>
+            베이스 모델
+            <select value={baseModel} onChange={(e) => setBaseModel(e.target.value)}>
+              <option value="mlx-community/gemma-4-E2B-it-4bit">gemma4-e2b (5B, 추천)</option>
+              <option value="mlx-community/gemma-4-E4B-it-4bit">gemma4-e4b (9B, 메모리 주의)</option>
+            </select>
+          </label>
+          <label>
+            반복 횟수
+            <input type="number" value={iters} onChange={(e) => setIters(parseInt(e.target.value) || 600)} />
+          </label>
+          <div className="row">
+            <button className="primary" onClick={train} disabled={busy}>
+              {busy ? "학습 중..." : "학습 시작"}
+            </button>
+            <button onClick={() => setStep(1)} disabled={busy}>이전</button>
+          </div>
+        </>
+      )}
+
+      {step === 3 && (
+        <>
+          <div className="muted" style={{ marginBottom: 8 }}>
+            어댑터: {trainResult?.adapter_name} — fuse → GGUF → Ollama 등록
+          </div>
+          <div className="row">
+            <button className="primary" onClick={build} disabled={busy}>
+              {busy ? "빌드 중..." : "모델 빌드 + Ollama 등록"}
+            </button>
+            <button onClick={() => setStep(2)} disabled={busy}>이전</button>
+          </div>
+        </>
+      )}
+
+      {models.length > 0 && (
+        <>
+          <h4 style={{ marginTop: 20 }}>등록된 파인튜닝 모델</h4>
+          <table className="agent-table">
+            <thead>
+              <tr>
+                <th>이름</th>
+                <th>베이스</th>
+                <th>반복</th>
+                <th>생성일</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {models.map((m) => (
+                <tr key={m.name}>
+                  <td><code>{m.name}</code></td>
+                  <td>{m.base_model.split("/").pop()}</td>
+                  <td>{m.iters}</td>
+                  <td>{m.created}</td>
+                  <td><button onClick={() => remove(m.name)}>삭제</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   );
 }
