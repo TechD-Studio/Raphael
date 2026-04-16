@@ -576,7 +576,10 @@ export default function App() {
   }
 
   if (view === "settings") {
-    return <Settings onBack={() => setView("chat")} />;
+    return <Settings onBack={() => {
+      setView("chat");
+      api.models().then(setModels).catch(() => {});
+    }} />;
   }
   if (view === "dashboard") {
     return <Dashboard onBack={() => setView("chat")} />;
