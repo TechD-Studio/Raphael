@@ -216,6 +216,9 @@ export default function App() {
     try {
       const det = await api.session(sid);
       setMessages(det.conversation.filter((m) => m.role !== "system"));
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+      });
     } catch {
       setMessages([]);
     }
