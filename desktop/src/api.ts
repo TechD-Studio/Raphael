@@ -323,6 +323,11 @@ export const api = {
       output?: string;
     }>("/system/update", {}),
 
+  escalation: () =>
+    jget<{ ladder: string[]; available: string[] }>("/settings/escalation"),
+  saveEscalation: (ladder: string[]) =>
+    jpost<{ ok: boolean; ladder: string[] }>("/settings/escalation", { ladder }),
+
   imageBackends: () =>
     jget<{ id: string; name: string; available: boolean; model: string; cost: string }[]>(
       "/image/backends",

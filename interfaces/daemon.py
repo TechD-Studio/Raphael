@@ -689,6 +689,31 @@ def save_routing(req: RoutingReq):
     return {"ok": True, "strategy": req.strategy, "rules_count": len(req.rules)}
 
 
+@app.get("/settings/escalation")
+def get_escalation():
+    from config.settings import get_settings
+
+    s = get_settings()
+    ladder = s.get("models", {}).get("escalation_ladder", [])
+    available = list((s.get("models", {}).get("ollama", {}).get("available") or {}).keys())
+    return {"ladder": ladder, "available": available}
+
+
+class EscalationReq(BaseModel):
+    ladder: list[str]
+
+
+@app.post("/settings/escalation")
+def save_escalation(req: EscalationReq):
+    from config.settings import save_local_settings
+
+    save_local_settings({"models": {"escalation_ladder": req.ladder}})
+    global router_inst, orch_inst
+    router_inst = None
+    orch_inst = None
+    return {"ok": True, "ladder": req.ladder}
+
+
 @app.get("/hooks/watches")
 def get_hook_watches():
     from config.settings import get_settings

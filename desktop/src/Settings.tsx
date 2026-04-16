@@ -505,10 +505,115 @@ function ModelsPanel() {
           {pullMsg}
         </div>
       )}
-      <p className="muted" style={{ marginTop: 12 }}>
-        라우터에 새 모델 등록은 <code>~/.raphael/settings.yaml</code> 의
-        models.ollama.available 직접 수정 (향후 UI 예정).
+      <EscalationEditor available={info.available} />
+    </div>
+  );
+}
+
+function EscalationEditor({ available }: { available: string[] }) {
+  const [ladder, setLadder] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    api.escalation().then((d) => setLadder(d.ladder)).catch(() => {});
+  }, []);
+
+  function move(i: number, dir: -1 | 1) {
+    const next = [...ladder];
+    const j = i + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[i], next[j]] = [next[j], next[i]];
+    setLadder(next);
+  }
+
+  function add(key: string) {
+    if (!ladder.includes(key)) setLadder([...ladder, key]);
+  }
+
+  function remove(i: number) {
+    setLadder(ladder.filter((_, idx) => idx !== i));
+  }
+
+  async function save() {
+    setSaving(true);
+    setErr("");
+    setMsg("");
+    try {
+      await api.saveEscalation(ladder);
+      setMsg("저장됨");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const unused = available.filter((k) => !ladder.includes(k));
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <h4>에스컬레이션 사다리</h4>
+      <p className="muted">
+        gemma4가 빈 응답을 반환하면 아래 순서대로 자동 전환합니다. Claude를 추가하면
+        gemma4로 안 되는 작업이 자동으로 Claude에 위임됩니다.
       </p>
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="ok-msg">{msg}</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+        {ladder.map((k, i) => (
+          <div
+            key={k}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 10px",
+              background: "var(--panel-bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+            }}
+          >
+            <span style={{ color: "var(--text-muted)", fontSize: 12, width: 20 }}>
+              {i + 1}
+            </span>
+            <code style={{ flex: 1 }}>{k}</code>
+            {k.startsWith("claude") && (
+              <span style={{ fontSize: 10, color: "var(--primary)", background: "var(--tag-bg)", padding: "1px 6px", borderRadius: 3 }}>
+                구독
+              </span>
+            )}
+            <button onClick={() => move(i, -1)} disabled={i === 0} style={{ fontSize: 11, padding: "2px 6px" }}>
+              ▲
+            </button>
+            <button onClick={() => move(i, 1)} disabled={i === ladder.length - 1} style={{ fontSize: 11, padding: "2px 6px" }}>
+              ▼
+            </button>
+            <button onClick={() => remove(i)} style={{ fontSize: 11, padding: "2px 6px", color: "#dc2626" }}>
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+      {unused.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {unused.map((k) => (
+            <button
+              key={k}
+              onClick={() => add(k)}
+              style={{ fontSize: 12 }}
+            >
+              + {k}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="row">
+        <button className="primary" onClick={save} disabled={saving}>
+          {saving ? "저장 중..." : "사다리 저장"}
+        </button>
+      </div>
     </div>
   );
 }
