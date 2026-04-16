@@ -104,7 +104,7 @@ class TelegramBot:
         await update.message.reply_text(
             f"Raphael v{self.settings['raphael']['version']}\n"
             f"모델: {self.router.current_key}\n\n"
-            "명령어: /status, /model, /agent, /reset"
+            "명령어: /status, /model, /agent, /reset, /settings, /verbose"
         )
 
     async def _status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -173,6 +173,75 @@ class TelegramBot:
             await update.message.reply_text("✓ 진행 로그 꺼짐 — 최종 응답만 전송합니다.")
         else:
             await update.message.reply_text("사용: /verbose on | off | status")
+
+    async def _settings_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """설정 변경. /settings <key> [value]"""
+        if not self._is_authorized(update):
+            await self._reject(update)
+            return
+        args = context.args or []
+        if not args:
+            await update.message.reply_text(
+                "사용법:\n"
+                "/settings model <key> — 기본 모델 변경\n"
+                "/settings escalation on|off — 자동 에스컬레이션 토글\n"
+                "/settings server <host> [port] — Ollama 서버 변경\n"
+                "/settings default_agent <name> — 기본 에이전트 변경\n"
+                "/settings show — 현재 설정 표시"
+            )
+            return
+        sub = args[0].lower()
+        from config.settings import get_settings, save_local_settings, reload_settings
+
+        if sub == "show":
+            s = get_settings()
+            m = s.get("models", {})
+            o = m.get("ollama", {})
+            ladder = m.get("escalation_ladder", [])
+            await update.message.reply_text(
+                f"기본 모델: {m.get('default', '?')}\n"
+                f"서버: {o.get('host', 'localhost')}:{o.get('port', 11434)}\n"
+                f"에스컬레이션: {'→'.join(ladder) if ladder else 'OFF'}\n"
+                f"기본 에이전트: {self.orchestrator._default_agent}"
+            )
+        elif sub == "model" and len(args) > 1:
+            key = args[1]
+            try:
+                self.router.switch_model(key)
+                save_local_settings({"models": {"default": key}})
+                reload_settings()
+                await update.message.reply_text(f"✓ 기본 모델 → {key}")
+            except ValueError as e:
+                await update.message.reply_text(f"✗ {e}")
+        elif sub == "escalation" and len(args) > 1:
+            if args[1].lower() == "off":
+                save_local_settings({"models": {"escalation_ladder": []}})
+                reload_settings()
+                await update.message.reply_text("✓ 에스컬레이션 OFF")
+            elif args[1].lower() == "on":
+                s = get_settings()
+                available = list((s.get("models", {}).get("ollama", {}).get("available") or {}).keys())
+                ladder = [k for k in available if not k.startswith("claude")]
+                save_local_settings({"models": {"escalation_ladder": ladder}})
+                reload_settings()
+                await update.message.reply_text(f"✓ 에스컬레이션 ON: {'→'.join(ladder)}")
+            else:
+                await update.message.reply_text("사용: /settings escalation on|off")
+        elif sub == "server" and len(args) > 1:
+            host = args[1]
+            port = int(args[2]) if len(args) > 2 else 11434
+            save_local_settings({"models": {"ollama": {"host": host, "port": port}}})
+            reload_settings()
+            await update.message.reply_text(f"✓ 서버 → {host}:{port} (재시작 필요)")
+        elif sub == "default_agent" and len(args) > 1:
+            name = args[1]
+            try:
+                self.orchestrator.set_default(name)
+                await update.message.reply_text(f"✓ 기본 에이전트 → {name}")
+            except ValueError as e:
+                await update.message.reply_text(f"✗ {e}")
+        else:
+            await update.message.reply_text("알 수 없는 설정. /settings 로 도움말 확인")
 
     async def _message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self._is_authorized(update):
@@ -254,6 +323,7 @@ class TelegramBot:
         app.add_handler(CommandHandler("agent", self._agent_cmd))
         app.add_handler(CommandHandler("reset", self._reset))
         app.add_handler(CommandHandler("verbose", self._verbose_cmd))
+        app.add_handler(CommandHandler("settings", self._settings_cmd))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._message))
 
         logger.info(f"텔레그램 봇 시작 (허용 사용자 수: {len(self.allowed_users)})")

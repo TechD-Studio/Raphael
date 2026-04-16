@@ -145,6 +145,68 @@ class DiscordBot:
             else:
                 await ctx.send("사용: `/verbose on` | `/verbose off` | `/verbose status`")
 
+        @bot.command(name="settings")
+        async def settings_cmd(ctx: commands.Context, sub: str = "", val: str = "", val2: str = "") -> None:
+            if not self._is_authorized(ctx.author):
+                await ctx.send("⛔ 권한 없음")
+                return
+            from config.settings import get_settings, save_local_settings, reload_settings
+
+            if not sub or sub == "help":
+                await ctx.send(
+                    "사용법:\n"
+                    "`/settings show` — 현재 설정\n"
+                    "`/settings model <key>` — 기본 모델 변경\n"
+                    "`/settings escalation on|off` — 에스컬레이션 토글\n"
+                    "`/settings server <host> [port]` — Ollama 서버\n"
+                    "`/settings default_agent <name>` — 기본 에이전트"
+                )
+            elif sub == "show":
+                s = get_settings()
+                m = s.get("models", {})
+                o = m.get("ollama", {})
+                ladder = m.get("escalation_ladder", [])
+                await ctx.send(
+                    f"모델: {m.get('default', '?')}\n"
+                    f"서버: {o.get('host', 'localhost')}:{o.get('port', 11434)}\n"
+                    f"에스컬레이션: {'→'.join(ladder) if ladder else 'OFF'}"
+                )
+            elif sub == "model" and val:
+                try:
+                    self.router.switch_model(val)
+                    save_local_settings({"models": {"default": val}})
+                    reload_settings()
+                    await ctx.send(f"✓ 모델 → {val}")
+                except ValueError as e:
+                    await ctx.send(f"✗ {e}")
+            elif sub == "escalation":
+                if val.lower() == "off":
+                    save_local_settings({"models": {"escalation_ladder": []}})
+                    reload_settings()
+                    await ctx.send("✓ 에스컬레이션 OFF")
+                elif val.lower() == "on":
+                    s = get_settings()
+                    available = list((s.get("models", {}).get("ollama", {}).get("available") or {}).keys())
+                    ladder = [k for k in available if not k.startswith("claude")]
+                    save_local_settings({"models": {"escalation_ladder": ladder}})
+                    reload_settings()
+                    await ctx.send(f"✓ 에스컬레이션 ON: {'→'.join(ladder)}")
+                else:
+                    await ctx.send("사용: `/settings escalation on|off`")
+            elif sub == "server" and val:
+                port = int(val2) if val2 else 11434
+                save_local_settings({"models": {"ollama": {"host": val, "port": port}}})
+                reload_settings()
+                await ctx.send(f"✓ 서버 → {val}:{port}")
+            elif sub == "default_agent" and val:
+                try:
+                    self.orchestrator.set_default(val)
+                    await ctx.send(f"✓ 기본 에이전트 → {val}")
+                except ValueError as e:
+                    await ctx.send(f"✗ {e}")
+            else:
+                await ctx.send("알 수 없는 설정. `/settings help`")
+
     # ── 이벤트 ─────────────────────────────────────────────
 
     def _register_events(self) -> None:
