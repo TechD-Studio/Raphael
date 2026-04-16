@@ -30,6 +30,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchHits, setSearchHits] = useState<SessionHit[]>([]);
   const [tagFilter, setTagFilter] = useState<string>("");
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedSids, setSelectedSids] = useState<Set<string>>(new Set());
   const [searching, setSearching] = useState(false);
   const [agentNames, setAgentNames] = useState<string[]>([]);
   const [targetAgent, setTargetAgent] = useState<string>("");
@@ -207,6 +209,31 @@ export default function App() {
     setMessages([]);
     setStreamBuf("");
     setTools([]);
+  }
+
+  async function deleteSelected() {
+    if (selectedSids.size === 0) return;
+    const ok = await confirmDialog(`${selectedSids.size}개 세션을 삭제하시겠습니까?`, { danger: true, okLabel: "삭제" });
+    if (!ok) return;
+    try {
+      await api.deleteSessions([...selectedSids]);
+      if (selectedSids.has(activeSid)) startNewSession();
+      setSelectedSids(new Set());
+      setSelectMode(false);
+      await refreshSessions();
+    } catch {}
+  }
+
+  async function deleteAllSessions() {
+    const ok = await confirmDialog("모든 세션을 삭제하시겠습니까?", { danger: true, okLabel: "전체 삭제" });
+    if (!ok) return;
+    try {
+      await api.deleteAllSessions();
+      startNewSession();
+      setSelectedSids(new Set());
+      setSelectMode(false);
+      await refreshSessions();
+    } catch {}
   }
 
   async function loadSession(sid: string) {
@@ -680,6 +707,16 @@ export default function App() {
           <span className="brand">Raphael</span>
           <button onClick={startNewSession} title="새 세션">＋</button>
           <button
+            title={selectMode ? "선택 취소" : "세션 선택"}
+            onClick={() => {
+              setSelectMode(!selectMode);
+              setSelectedSids(new Set());
+            }}
+            style={{ marginLeft: 4, opacity: selectMode ? 1 : 0.6 }}
+          >
+            ☑
+          </button>
+          <button
             title="대시보드"
             onClick={() => setView("dashboard")}
             style={{ marginLeft: 4 }}
@@ -694,6 +731,15 @@ export default function App() {
             ⚙
           </button>
         </div>
+        {selectMode && (
+          <div className="select-toolbar">
+            <button onClick={deleteSelected} disabled={selectedSids.size === 0}>
+              선택 삭제 ({selectedSids.size})
+            </button>
+            <button onClick={deleteAllSessions}>전체 삭제</button>
+            <button onClick={() => { setSelectMode(false); setSelectedSids(new Set()); }}>취소</button>
+          </div>
+        )}
         <div className="session-search">
           <input
             placeholder="세션 검색 (의미 기반)"
@@ -775,9 +821,27 @@ export default function App() {
             .map((s) => (
             <div
               key={s.id}
-              className={`session ${s.id === activeSid ? "active" : ""}`}
-              onClick={() => loadSession(s.id)}
+              className={`session ${s.id === activeSid ? "active" : ""} ${selectedSids.has(s.id) ? "selected" : ""}`}
+              onClick={() => {
+                if (selectMode) {
+                  setSelectedSids((prev) => {
+                    const next = new Set(prev);
+                    next.has(s.id) ? next.delete(s.id) : next.add(s.id);
+                    return next;
+                  });
+                } else {
+                  loadSession(s.id);
+                }
+              }}
             >
+              {selectMode && (
+                <input
+                  type="checkbox"
+                  checked={selectedSids.has(s.id)}
+                  readOnly
+                  style={{ marginRight: 6, accentColor: "var(--primary)" }}
+                />
+              )}
               <div className="session-title">{s.title || "(빈 세션)"}</div>
               {s.tags && s.tags.length > 0 && (
                 <div className="session-tags">

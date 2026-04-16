@@ -199,6 +199,10 @@ export const api = {
     const r = await fetch(`${BASE}/sessions/${id}`, { method: "DELETE" });
     if (!r.ok) throw new Error(`${r.status}`);
   },
+  deleteSessions: (ids: string[]) =>
+    jpost<{ deleted: number }>("/sessions/delete-bulk", { ids }),
+  deleteAllSessions: () =>
+    jpost<{ deleted: number }>("/sessions/delete-bulk", { all: true }),
   agents: () => jget<AgentInfo[]>("/agents"),
   agentRecommendations: (limit = 3) =>
     jget<{ name: string; reason: string }[]>(

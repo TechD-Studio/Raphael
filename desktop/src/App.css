@@ -1288,3 +1288,23 @@ pre:hover .code-copy { opacity: 1; }
 .tts-toggle.off {
   opacity: 0.5;
 }
+
+.select-toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--sidebar-border);
+  background: var(--sidebar-head-bg);
+  font-size: 11px;
+}
+.select-toolbar button {
+  background: var(--sidebar-btn-bg);
+  color: var(--sidebar-btn-text);
+  border: none;
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.select-toolbar button:disabled { opacity: 0.4; }
+.session.selected { background: var(--sidebar-active); outline: 1px solid var(--primary); }

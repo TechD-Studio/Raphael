@@ -43,9 +43,28 @@ from core.agent_definitions import (
 from tools.tool_registry import create_default_registry
 
 
+def _cleanup_empty_sessions():
+    """빈 세션 파일 자동 삭제."""
+    d = sessions_dir()
+    count = 0
+    for p in list(d.glob("*.json")):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            convo = data if isinstance(data, list) else data.get("conversation", [])
+            user_msgs = [m for m in convo if isinstance(m, dict) and m.get("role") == "user"]
+            if not user_msgs:
+                p.unlink()
+                count += 1
+        except Exception:
+            pass
+    if count:
+        logger.info(f"빈 세션 {count}개 자동 삭제")
+
+
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
     _init_runtime()
+    _cleanup_empty_sessions()
     yield
 
 
@@ -240,6 +259,27 @@ def delete_session(sid: str):
     if deleted:
         return {"deleted": True}
     raise HTTPException(404, "세션 없음")
+
+
+class SessionBulkDeleteReq(BaseModel):
+    ids: list[str] = []
+    all: bool = False
+
+
+@app.post("/sessions/delete-bulk")
+def delete_sessions_bulk(req: SessionBulkDeleteReq):
+    d = sessions_dir()
+    count = 0
+    if req.all:
+        for p in list(d.glob("*.json")):
+            p.unlink()
+            count += 1
+    else:
+        for sid in req.ids:
+            for p in list(d.glob(f"{sid}*.json")):
+                p.unlink()
+                count += 1
+    return {"deleted": count}
 
 
 class MessageReq(BaseModel):
