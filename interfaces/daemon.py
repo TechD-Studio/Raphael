@@ -88,6 +88,12 @@ def _init_runtime() -> Orchestrator:
     return orch_inst
 
 
+@app.get("/")
+def root_redirect():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/app")
+
+
 @app.get("/healthz")
 def healthz():
     return {"ok": True, "version": app.version}
