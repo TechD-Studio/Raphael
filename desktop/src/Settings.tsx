@@ -22,6 +22,11 @@ type Tab =
 
 export default function Settings({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<Tab>("agents");
+  const [modelsInfo, setModelsInfo] = useState<ModelsInfo | null>(null);
+
+  useEffect(() => {
+    api.models().then(setModelsInfo).catch(() => {});
+  }, []);
 
   return (
     <div className="settings-root">
@@ -75,8 +80,12 @@ export default function Settings({ onBack }: { onBack: () => void }) {
         {tab === "models" && (
           <>
             <ModelsPanel />
-            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid var(--border)" }} />
             <RoutingPanel />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid var(--border)" }} />
+            <EscalationEditor available={modelsInfo?.available || []} />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid var(--border)" }} />
+            <FineTunePanel />
           </>
         )}
         {tab === "server" && (
@@ -505,9 +514,6 @@ function ModelsPanel() {
           {pullMsg}
         </div>
       )}
-      <EscalationEditor available={info.available} />
-      <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid var(--border)" }} />
-      <FineTunePanel />
     </div>
   );
 }
