@@ -57,6 +57,11 @@ export default function App() {
   const [tokenPanelOpen, setTokenPanelOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    const stored = localStorage.getItem("raphael-theme");
+    if (stored) return stored === "dark";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  });
   const [plannerSteps, setPlannerSteps] = useState<
     {
       agent: string;
@@ -69,6 +74,11 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordChunksRef = useRef<Blob[]>([]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+    localStorage.setItem("raphael-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
 
   useEffect(() => {
     // Auto-check for app updates (non-blocking)
@@ -774,6 +784,21 @@ export default function App() {
               ))}
             </select>
           )}
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            title={darkMode ? "라이트 모드" : "다크 모드"}
+            style={{
+              marginLeft: "auto",
+              background: "transparent",
+              border: "none",
+              color: "#d6d8df",
+              cursor: "pointer",
+              fontSize: 16,
+              padding: "2px 6px",
+            }}
+          >
+            {darkMode ? "☀" : "🌙"}
+          </button>
         </div>
       </aside>
 
