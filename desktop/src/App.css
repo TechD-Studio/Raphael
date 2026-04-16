@@ -277,16 +277,7 @@ body {
   outline: none;
 }
 .composer textarea:focus { border-color: #6366f1; }
-.composer button {
-  background: var(--primary);
-  color: var(--primary-text);
-  border: none;
-  border-radius: 8px;
-  padding: 0 18px;
-  cursor: pointer;
-  font-weight: 500;
-}
-.composer button:disabled { background: #c4c7cd; cursor: not-allowed; }
+/* composer buttons handled by .send-btn and .tool-btn */
 
 /* ── Settings ─────────────────────────────────────── */
 .settings-root {
@@ -555,13 +546,12 @@ body {
   cursor: pointer;
   padding: 0;
 }
-.composer-attach {
+.composer-actions {
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
-  margin-right: 10px;
   align-items: center;
+  margin-left: 4px;
 }
 .card-grid {
   display: grid;
@@ -1340,3 +1330,39 @@ pre:hover .code-copy { opacity: 1; }
 }
 .tool-log-model .tool-log-name { color: var(--primary); }
 .tool-log-result .tool-log-detail { color: var(--text-sub); }
+
+.send-btn {
+  background: var(--primary);
+  color: var(--primary-text);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.send-btn:disabled { background: #c4c7cd; cursor: not-allowed; }
+.send-btn.stop { background: #dc2626; }
+
+.tts-toggle {
+  position: relative;
+}
+.tts-toggle.on {
+  background: var(--tag-bg);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.tts-toggle.on::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  background: #16a34a;
+  border-radius: 50%;
+}
+.tts-toggle.off {
+  opacity: 0.5;
+}

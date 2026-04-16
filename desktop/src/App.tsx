@@ -497,45 +497,6 @@ export default function App() {
     }
   }
 
-  async function pasteFromClipboard() {
-    try {
-      if (navigator.clipboard && "read" in navigator.clipboard) {
-        const items = await (navigator.clipboard as any).read();
-        let attached = 0;
-        let text = "";
-        for (const item of items) {
-          for (const type of item.types) {
-            if (type.startsWith("image/")) {
-              const blob = await item.getType(type);
-              const reader = new FileReader();
-              reader.onload = () => {
-                if (typeof reader.result === "string") {
-                  setPendingImages((arr) => [...arr, reader.result as string]);
-                }
-              };
-              reader.readAsDataURL(blob);
-              attached++;
-            } else if (type === "text/plain") {
-              const blob = await item.getType(type);
-              text = await blob.text();
-            }
-          }
-        }
-        if (!attached && text) {
-          setInput((cur) => (cur ? cur + "\n" + text : text));
-        } else if (!attached && !text) {
-          alert("클립보드가 비어있습니다.");
-        }
-      } else {
-        // Fallback: text only
-        const t = await (navigator.clipboard as any).readText();
-        if (t) setInput((cur) => (cur ? cur + "\n" + t : t));
-      }
-    } catch (e: any) {
-      alert(`클립보드 접근 실패: ${e?.message || e}`);
-    }
-  }
-
   function handleComposerPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -556,15 +517,6 @@ export default function App() {
       }
     }
     if (attached > 0) e.preventDefault();
-  }
-
-  async function captureScreen() {
-    try {
-      const r = await api.takeScreenshot();
-      setPendingImages((arr) => [...arr, r.data_url]);
-    } catch (e: any) {
-      alert(`스크린샷 실패: ${e.message || e}`);
-    }
   }
 
   async function showTokens() {
@@ -1040,52 +992,11 @@ export default function App() {
               e.target.value = "";
             }}
           />
-          <div className="composer-attach">
-            <button
-              className="tool-btn"
-              onClick={() => fileInputRef.current?.click()}
-              title="이미지 첨부"
-              disabled={streaming}
-            >
-              📎
-            </button>
-            <button
-              className="tool-btn"
-              onClick={captureScreen}
-              title="화면 캡처"
-              disabled={streaming}
-            >
-              🖥
-            </button>
-            <button
-              className="tool-btn"
-              onClick={pasteFromClipboard}
-              title="클립보드에서 붙여넣기 (이미지/텍스트)"
-              disabled={streaming}
-            >
-              📋
-            </button>
-            <button
-              className={`tool-btn ${recording ? "recording" : ""}`}
-              onClick={toggleRecord}
-              title={recording ? "녹음 중지 (전사)" : "음성 입력"}
-              disabled={streaming}
-            >
-              {recording ? "⏹" : "🎙"}
-            </button>
-            <button
-              className={`tool-btn ${ttsEnabled ? "active" : ""}`}
-              onClick={() => setTtsEnabled(!ttsEnabled)}
-              title={ttsEnabled ? "응답 음성 ON" : "응답 음성 OFF"}
-            >
-              🔊
-            </button>
-          </div>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onPaste={handleComposerPaste}
-            placeholder={healthy ? "메시지 입력 (Enter 전송, Shift+Enter 줄바꿈, Cmd+V 이미지/텍스트)" : "데몬 대기 중..."}
+            placeholder={healthy ? "메시지 입력 (Enter 전송, Shift+Enter 줄바꿈, 파일은 드래그앤드롭)" : "데몬 대기 중..."}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -1095,21 +1006,39 @@ export default function App() {
             disabled={!healthy}
             rows={3}
           />
-          {streaming ? (
-            <button onClick={stopStreaming} style={{ background: "#dc2626" }}>
-              중지
-            </button>
-          ) : (
+          <div className="composer-actions">
             <button
-              onClick={sendMessage}
-              disabled={
-                !healthy ||
-                (!input.trim() && pendingImages.length === 0)
-              }
+              className={`tool-btn ${recording ? "recording" : ""}`}
+              onClick={toggleRecord}
+              title={recording ? "녹음 중지 (전사)" : "음성 입력"}
+              disabled={streaming}
             >
-              전송
+              {recording ? "⏹" : "🎙"}
             </button>
-          )}
+            <button
+              className={`tool-btn tts-toggle ${ttsEnabled ? "on" : "off"}`}
+              onClick={() => setTtsEnabled(!ttsEnabled)}
+              title={ttsEnabled ? "응답 음성 ON" : "응답 음성 OFF"}
+            >
+              {ttsEnabled ? "🔊" : "🔇"}
+            </button>
+            {streaming ? (
+              <button className="send-btn stop" onClick={stopStreaming}>
+                중지
+              </button>
+            ) : (
+              <button
+                className="send-btn"
+                onClick={sendMessage}
+                disabled={
+                  !healthy ||
+                  (!input.trim() && pendingImages.length === 0)
+                }
+              >
+                전송
+              </button>
+            )}
+          </div>
         </div>
       </main>
     </div>
