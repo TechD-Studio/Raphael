@@ -92,20 +92,29 @@ def list_sessions():
     for p in files:
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
+            if isinstance(data, list):
+                convo = data
+                sid = p.stem.split("__")[0]
+                agent = p.stem.split("__")[1] if "__" in p.stem else ""
+                tags = []
+            elif isinstance(data, dict):
+                convo = data.get("conversation", [])
+                sid = data.get("id") or p.stem.split("__")[0]
+                agent = data.get("agent", p.stem.split("__")[1] if "__" in p.stem else "")
+                tags = data.get("tags") or []
+            else:
                 continue
-            convo = data.get("conversation", [])
             first_user = next(
-                (m["content"] for m in convo if m.get("role") == "user"),
+                (m["content"] for m in convo if isinstance(m, dict) and m.get("role") == "user"),
                 "(빈 세션)",
             )
             out.append({
-                "id": data.get("id") or p.stem,
-                "agent": data.get("agent", ""),
+                "id": sid,
+                "agent": agent,
                 "title": (first_user or "(빈)")[:60],
-                "turns": sum(1 for m in convo if m.get("role") == "user"),
+                "turns": sum(1 for m in convo if isinstance(m, dict) and m.get("role") == "user"),
                 "mtime": p.stat().st_mtime,
-                "tags": data.get("tags") or [],
+                "tags": tags,
             })
         except Exception as e:
             logger.debug(f"세션 읽기 실패 {p.name}: {e}")
@@ -115,9 +124,17 @@ def list_sessions():
 @app.get("/sessions/{sid}")
 def get_session(sid: str):
     s = Session.load(sid)
-    if not s:
-        raise HTTPException(404, "세션 없음")
-    return {"id": s.id, "agent": s.agent, "conversation": s.conversation}
+    if s:
+        return {"id": s.id, "agent": s.agent, "conversation": s.conversation}
+    for p in sessions_dir().glob(f"{sid}__*.json"):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            convo = data if isinstance(data, list) else data.get("conversation", [])
+            agent = p.stem.split("__")[1] if "__" in p.stem else ""
+            return {"id": sid, "agent": agent, "conversation": convo}
+        except Exception:
+            pass
+    raise HTTPException(404, "세션 없음")
 
 
 class SessionSearchReq(BaseModel):

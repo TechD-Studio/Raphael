@@ -512,12 +512,16 @@ function ModelsPanel() {
 
 function EscalationEditor({ available }: { available: string[] }) {
   const [ladder, setLadder] = useState<string[]>([]);
+  const [enabled, setEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    api.escalation().then((d) => setLadder(d.ladder)).catch(() => {});
+    api.escalation().then((d) => {
+      setLadder(d.ladder);
+      setEnabled(d.ladder.length > 0);
+    }).catch(() => {});
   }, []);
 
   function move(i: number, dir: -1 | 1) {
@@ -541,8 +545,8 @@ function EscalationEditor({ available }: { available: string[] }) {
     setErr("");
     setMsg("");
     try {
-      await api.saveEscalation(ladder);
-      setMsg("저장됨");
+      await api.saveEscalation(enabled ? ladder : []);
+      setMsg(enabled ? "저장됨" : "에스컬레이션 비활성화됨");
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -554,10 +558,21 @@ function EscalationEditor({ available }: { available: string[] }) {
 
   return (
     <div style={{ marginTop: 24 }}>
-      <h4>에스컬레이션 사다리</h4>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <h4 style={{ margin: 0 }}>에스컬레이션 사다리</h4>
+        <label className="inline" style={{ marginLeft: "auto", fontSize: 12 }}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          {enabled ? "ON" : "OFF"}
+        </label>
+      </div>
       <p className="muted">
-        gemma4가 빈 응답을 반환하면 아래 순서대로 자동 전환합니다. Claude를 추가하면
-        gemma4로 안 되는 작업이 자동으로 Claude에 위임됩니다.
+        {enabled
+          ? "gemma4가 빈 응답을 반환하면 아래 순서대로 자동 전환합니다."
+          : "에스컬레이션이 비활성화되어 있습니다. 현재 모델만 사용합니다."}
       </p>
       {err && <div className="err">{err}</div>}
       {msg && <div className="ok-msg">{msg}</div>}
@@ -1851,6 +1866,35 @@ function ImageGenPanel() {
           <option value="1024x1792">1024x1792 (세로)</option>
           <option value="1792x1024">1792x1024 (가로)</option>
         </select>
+      </label>
+      <h4 style={{ marginTop: 16, marginBottom: 4 }}>API 키</h4>
+      <p className="muted">
+        로컬 FLUX.1은 HuggingFace 인증 필요 (hf_...). OpenAI DALL-E는 OPENAI_API_KEY 필요 (sk-...).
+        입력 후 포커스를 빼면 자동 저장됩니다.
+      </p>
+      <label>
+        OPENAI_API_KEY
+        <input
+          placeholder="sk-..."
+          onBlur={async (e) => {
+            const v = e.target.value.trim();
+            if (v) {
+              try { await api.setSecret("OPENAI_API_KEY", v); setMsg("OPENAI_API_KEY 저장됨"); } catch (ex: any) { setErr(ex.message); }
+            }
+          }}
+        />
+      </label>
+      <label>
+        HUGGINGFACE_TOKEN
+        <input
+          placeholder="hf_..."
+          onBlur={async (e) => {
+            const v = e.target.value.trim();
+            if (v) {
+              try { await api.setSecret("HUGGINGFACE_TOKEN", v); setMsg("HUGGINGFACE_TOKEN 저장됨"); } catch (ex: any) { setErr(ex.message); }
+            }
+          }}
+        />
       </label>
       <div className="row">
         <button className="primary" onClick={save} disabled={saving}>
