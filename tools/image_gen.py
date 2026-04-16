@@ -114,10 +114,24 @@ class ImageGenTool:
             return {"ok": False, "error": f"DALL-E 생성 실패: {e}"}
 
     async def _generate_local(self, prompt: str, negative_prompt: str, size: str, cfg: dict) -> dict:
-        """MLX Stable Diffusion (로컬)."""
+        """mflux-generate CLI로 FLUX.1 이미지 생성."""
         import asyncio
+        import shutil
+        import subprocess
 
-        model_name = cfg.get("local_model", "stabilityai/stable-diffusion-2-1-base")
+        if not shutil.which("mflux-generate"):
+            return {
+                "ok": False,
+                "error": (
+                    "로컬 이미지 생성 불가.\n"
+                    "FLUX.1은 HuggingFace 인증 + 모델 접근 승인 필요:\n"
+                    "  1. huggingface.co에서 FLUX.1-schnell 접근 요청\n"
+                    "  2. huggingface-cli login\n"
+                    "  3. pip install mflux\n"
+                    "또는 설정 > 서버 > 이미지 생성에서 OpenAI 백엔드를 선택하세요 (OPENAI_API_KEY 필요)."
+                ),
+            }
+
         try:
             w, h = (int(x) for x in size.split("x"))
         except Exception:
@@ -125,57 +139,40 @@ class ImageGenTool:
         w = min(w, 1024)
         h = min(h, 1024)
 
+        ts = int(time.time())
+        out_path = _output_dir() / f"flux_{ts}.png"
+        seed = ts % 100000
+
+        cmd = [
+            "mflux-generate",
+            "--base-model", "schnell",
+            "--quantize", "4",
+            "--prompt", prompt,
+            "--width", str(w),
+            "--height", str(h),
+            "--steps", "4",
+            "--seed", str(seed),
+            "--output", str(out_path),
+        ]
+        logger.info(f"mflux-generate: {prompt[:60]}... ({w}x{h})")
+
         def _run():
             try:
-                from mlx_image.stable_diffusion import StableDiffusion
-            except ImportError:
-                try:
-                    from mflux import Flux1
-                    flux = Flux1(
-                        model_alias="schnell",
-                        quantize=4,
-                    )
-                    image = flux.generate_image(
-                        seed=int(time.time()) % 100000,
-                        prompt=prompt,
-                        config=flux.model_config,
-                    )
-                    ts = int(time.time())
-                    out_path = _output_dir() / f"flux_{ts}.png"
-                    image.save(out_path)
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                if r.returncode != 0:
+                    return {"ok": False, "error": f"mflux 실패 (rc={r.returncode}): {r.stderr[:300]}"}
+                if out_path.exists():
                     return {
                         "ok": True,
                         "backend": "local",
                         "model": "flux.1-schnell-4bit",
                         "path": str(out_path),
                     }
-                except ImportError:
-                    return {
-                        "ok": False,
-                        "error": (
-                            "로컬 이미지 생성에 필요한 패키지가 없습니다.\n"
-                            "다음 중 하나를 설치하세요:\n"
-                            "  pip install mflux          # FLUX.1 (추천)\n"
-                            "  pip install mlx-image       # Stable Diffusion\n"
-                        ),
-                    }
-
-            sd = StableDiffusion(model_name)
-            ts = int(time.time())
-            out_path = _output_dir() / f"sd_{ts}.png"
-            sd.generate(
-                prompt=prompt,
-                negative_prompt=negative_prompt or "blurry, low quality, distorted",
-                width=w,
-                height=h,
-                output_path=str(out_path),
-            )
-            return {
-                "ok": True,
-                "backend": "local",
-                "model": model_name.split("/")[-1],
-                "path": str(out_path),
-            }
+                return {"ok": False, "error": f"이미지 파일 미생성. stdout: {r.stdout[:200]}"}
+            except subprocess.TimeoutExpired:
+                return {"ok": False, "error": "mflux 타임아웃 (300초)"}
+            except Exception as e:
+                return {"ok": False, "error": f"mflux 실행 실패: {e}"}
 
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, _run)

@@ -59,7 +59,7 @@ function Dialog({
         <div
           className="approval-title"
           style={{
-            color: opts.danger ? "#b91c1c" : "#1c1d20",
+            color: opts.danger ? "var(--err-text)" : "var(--text)",
             whiteSpace: "pre-wrap",
           }}
         >

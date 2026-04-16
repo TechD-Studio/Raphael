@@ -1027,9 +1027,31 @@ function RoutingPanel() {
         <button onClick={reload} disabled={saving}>
           다시 불러오기
         </button>
+        <button onClick={applyRecommended} disabled={saving}>
+          추천 불러오기
+        </button>
       </div>
     </div>
   );
+
+  function applyRecommended() {
+    const pick = (keywords: string[], fallback: string) => {
+      for (const kw of keywords) {
+        const found = models.find((m) => m.includes(kw));
+        if (found) return found;
+      }
+      return models.includes(fallback) ? fallback : models[0] || "";
+    };
+    setStrategy("auto");
+    setSlotModels({
+      short: pick(["e2b", "haiku"], "gemma4-e2b"),
+      review: pick(["sonnet", "26b", "e4b"], "gemma4-e4b"),
+      project: pick(["opus", "sonnet", "26b"], "gemma4-26b"),
+      long_chat: pick(["26b", "e4b", "sonnet"], "gemma4-e4b"),
+      default: pick(["e4b"], "gemma4-e4b"),
+    });
+    setMsg("추천 매핑이 적용되었습니다. '저장'을 눌러 반영하세요.");
+  }
 }
 
 function RagPanel() {
