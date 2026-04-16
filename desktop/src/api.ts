@@ -501,11 +501,13 @@ export const api = {
     },
     images: string[] = [],
     skill: string | undefined = undefined,
+    signal?: AbortSignal,
   ) {
     const r = await fetch(`${BASE}/sessions/${sid}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content, agent, images, skill }),
+      signal,
     });
     if (!r.ok || !r.body) throw new Error(`${r.status}`);
     const reader = r.body.getReader();

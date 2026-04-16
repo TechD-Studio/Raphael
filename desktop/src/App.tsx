@@ -79,6 +79,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordChunksRef = useRef<Blob[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
@@ -300,6 +301,10 @@ export default function App() {
     });
   }
 
+  function stopStreaming() {
+    abortRef.current?.abort();
+  }
+
   async function doSend(text: string, imgs: string[] = []) {
     const userContent = imgs.length > 0 ? `${text}${text ? "\n\n" : ""}_(첨부 이미지 ${imgs.length}개)_` : text;
     setMessages((m) => [...m, { role: "user", content: userContent }]);
@@ -308,6 +313,9 @@ export default function App() {
     setTools([]);
     setPlannerSteps([]);
     setToolLog([]);
+    const ac = new AbortController();
+    abortRef.current = ac;
+    refreshSessions();
     let buf = "";
     try {
       await api.sendMessage(activeSid, text, targetAgent || undefined, {
@@ -345,12 +353,19 @@ export default function App() {
         },
         onApproval: (d) => setPendingApproval(d),
         onFinal: (full) => { buf = full; setStreamBuf(full); },
-      }, imgs, activeSkill || undefined);
+      }, imgs, activeSkill || undefined, ac.signal);
       setMessages((m) => [...m, { role: "assistant", content: buf || "(빈 응답)" }]);
       if (ttsEnabled && buf) api.tts(buf).catch(() => {});
-    } catch (e) {
-      setMessages((m) => [...m, { role: "assistant", content: `⚠ 오류: ${e}` }]);
+    } catch (e: any) {
+      if (e?.name === "AbortError" || ac.signal.aborted) {
+        if (buf) {
+          setMessages((m) => [...m, { role: "assistant", content: buf + "\n\n_(중단됨)_" }]);
+        }
+      } else {
+        setMessages((m) => [...m, { role: "assistant", content: `⚠ 오류: ${e}` }]);
+      }
     } finally {
+      abortRef.current = null;
       setStreaming(false);
       setStreamBuf("");
       setTools([]);
@@ -1077,19 +1092,24 @@ export default function App() {
                 sendMessage();
               }
             }}
-            disabled={!healthy || streaming}
+            disabled={!healthy}
             rows={3}
           />
-          <button
-            onClick={sendMessage}
-            disabled={
-              !healthy ||
-              streaming ||
-              (!input.trim() && pendingImages.length === 0)
-            }
-          >
-            {streaming ? "전송 중..." : "전송"}
-          </button>
+          {streaming ? (
+            <button onClick={stopStreaming} style={{ background: "#dc2626" }}>
+              중지
+            </button>
+          ) : (
+            <button
+              onClick={sendMessage}
+              disabled={
+                !healthy ||
+                (!input.trim() && pendingImages.length === 0)
+              }
+            >
+              전송
+            </button>
+          )}
         </div>
       </main>
     </div>
