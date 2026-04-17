@@ -149,11 +149,29 @@ fn remove_quarantine() {
 }
 
 fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
+    // 이미 실행 중이면 스킵
+    if std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:8765".parse().unwrap(),
+        std::time::Duration::from_secs(1),
+    ).is_ok() {
+        return Err("already running".to_string());
+    }
+
+    // raphaeld 프로세스가 이미 있으면 (추출 중일 수 있음) 스킵
+    #[cfg(unix)]
+    {
+        use std::process::Command;
+        if let Ok(output) = Command::new("pgrep").args(["-f", "raphaeld.*--port"]).output() {
+            if !String::from_utf8_lossy(&output.stdout).trim().is_empty() {
+                return Err("raphaeld process exists (extracting)".to_string());
+            }
+        }
+    }
+
     cleanup_pyinstaller_temp();
     remove_quarantine();
     kill_stale_daemon();
 
-    // 직접 실행 — Tauri sidecar pipe 문제 우회
     let raphaeld_path = std::env::current_exe()
         .map_err(|e| format!("exe path: {e}"))?
         .parent()
