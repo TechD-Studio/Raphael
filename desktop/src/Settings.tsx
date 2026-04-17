@@ -227,7 +227,13 @@ function CustomInstructionsPanel() {
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
-    api.customInstructions().then((d) => setText(d.text)).catch(() => {});
+    let retries = 0;
+    const load = () => {
+      api.customInstructions().then((d) => setText(d.text)).catch(() => {
+        if (retries++ < 5) setTimeout(load, 2000);
+      });
+    };
+    load();
   }, []);
 
   async function save() {
@@ -1831,10 +1837,11 @@ function ProfilePanel() {
   }
 
   return (
-    <div>
+    <div className="agent-editor">
+      <h3>사용자 프로필 (자동 주입)</h3>
       <p className="muted">
-        Orchestrator가 매 라우팅 시 system 메시지로 자동 주입합니다. 이름,
-        선호도, 사용 환경, 자주 쓰는 도구 등을 기록하세요.
+        아래 정보가 모든 에이전트의 시스템 메시지에 자동 주입됩니다.
+        채팅에서 "내 이름은 dh야" → 자동 저장. 직접 추가/삭제도 가능합니다.
       </p>
       {err && <div className="err">{err}</div>}
       <table className="agent-table">
