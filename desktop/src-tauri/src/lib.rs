@@ -14,8 +14,7 @@ fn daemon_url() -> String {
 }
 
 #[tauri::command]
-fn ensure_daemon(app: tauri::AppHandle, state: State<'_, DaemonState>) -> Result<String, String> {
-    // TCP check
+fn ensure_daemon(app: tauri::AppHandle, _state: State<'_, DaemonState>) -> Result<String, String> {
     let alive = std::net::TcpStream::connect_timeout(
         &"127.0.0.1:8765".parse().unwrap(),
         std::time::Duration::from_secs(2),
@@ -24,12 +23,9 @@ fn ensure_daemon(app: tauri::AppHandle, state: State<'_, DaemonState>) -> Result
         return Ok("already running".to_string());
     }
     eprintln!("[raphael] ensure_daemon: not running, spawning...");
-    kill_stale_daemon();
     match spawn_daemon(&app) {
-        Ok(child) => {
-            *state.0.lock().unwrap() = Some(child);
-            Ok("started".to_string())
-        }
+        Ok(_) => Ok("started".to_string()),
+        Err(e) if e == "direct_spawn_ok" => Ok("started".to_string()),
         Err(e) => Err(e),
     }
 }
@@ -103,66 +99,76 @@ fn kill_stale_daemon() {
     }
 }
 
-fn spawn_daemon(app: &tauri::AppHandle) -> Result<CommandChild, String> {
-    kill_stale_daemon();
-
-    // 방법 1: 표준 sidecar
-    let sidecar_result = (|| -> Result<CommandChild, String> {
-        let sidecar = app
-            .shell()
-            .sidecar("raphaeld")
-            .map_err(|e| format!("sidecar lookup: {e}"))?;
-        let (mut rx, child) = sidecar
-            .args(["--host", "127.0.0.1", "--port", "8765"])
-            .spawn()
-            .map_err(|e| format!("sidecar spawn: {e}"))?;
-        tauri::async_runtime::spawn(async move {
-            while let Some(event) = rx.recv().await {
-                match event {
-                    CommandEvent::Stdout(line) => {
-                        eprintln!("[raphaeld] {}", String::from_utf8_lossy(&line))
+fn remove_quarantine() {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(macos_dir) = exe.parent() {
+                let raphaeld = macos_dir.join("raphaeld");
+                if raphaeld.exists() {
+                    let _ = Command::new("xattr")
+                        .args(["-dr", "com.apple.quarantine"])
+                        .arg(&raphaeld)
+                        .output();
+                    eprintln!("[raphael] quarantine removed from {}", raphaeld.display());
+                }
+                // Also remove from app bundle
+                if let Some(contents) = macos_dir.parent() {
+                    if let Some(app_dir) = contents.parent() {
+                        let _ = Command::new("xattr")
+                            .args(["-dr", "com.apple.quarantine"])
+                            .arg(app_dir)
+                            .output();
                     }
-                    CommandEvent::Stderr(line) => {
-                        eprintln!("[raphaeld] {}", String::from_utf8_lossy(&line))
-                    }
-                    CommandEvent::Error(e) => eprintln!("[raphaeld error] {e}"),
-                    CommandEvent::Terminated(t) => {
-                        eprintln!("[raphaeld terminated] code={:?}", t.code);
-                        break;
-                    }
-                    _ => {}
                 }
             }
-        });
-        Ok(child)
-    })();
-
-    if sidecar_result.is_ok() {
-        eprintln!("[raphael] sidecar spawned (non-blocking)");
-        return sidecar_result;
-    }
-
-    // 방법 2: sidecar 실패 시 직접 실행 (fallback)
-    let raphaeld_path = std::env::current_exe()
-        .unwrap_or_default()
-        .parent()
-        .unwrap_or(std::path::Path::new("."))
-        .join("raphaeld");
-
-    if raphaeld_path.exists() {
-        eprintln!("[raphael] fallback: direct exec {}", raphaeld_path.display());
-        match std::process::Command::new(&raphaeld_path)
-            .args(["--host", "127.0.0.1", "--port", "8765"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-        {
-            Ok(_) => eprintln!("[raphael] fallback daemon spawned"),
-            Err(e) => eprintln!("[raphael] fallback spawn failed: {e}"),
         }
     }
+}
 
-    sidecar_result
+fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
+    remove_quarantine();
+    kill_stale_daemon();
+
+    // 직접 실행 — Tauri sidecar pipe 문제 우회
+    let raphaeld_path = std::env::current_exe()
+        .map_err(|e| format!("exe path: {e}"))?
+        .parent()
+        .ok_or("no parent dir")?
+        .join("raphaeld");
+
+    if !raphaeld_path.exists() {
+        return Err(format!("raphaeld not found: {}", raphaeld_path.display()));
+    }
+
+    eprintln!("[raphael] launching daemon: {}", raphaeld_path.display());
+    match std::process::Command::new(&raphaeld_path)
+        .args(["--host", "127.0.0.1", "--port", "8765"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => {
+            let pid = child.id();
+            // stderr 로그를 백그라운드로 읽기
+            std::thread::spawn(move || {
+                use std::io::BufRead;
+                if let Some(stderr) = child.stderr {
+                    for line in std::io::BufReader::new(stderr).lines().take(50) {
+                        if let Ok(l) = line {
+                            eprintln!("[raphaeld] {l}");
+                        }
+                    }
+                }
+            });
+            eprintln!("[raphael] daemon spawned (PID {pid})");
+            // CommandChild를 반환할 수 없으므로 None으로 state에 저장
+            // watchdog + ensure_daemon이 lifecycle 관리
+            Err("direct_spawn_ok".to_string())
+        }
+        Err(e) => Err(format!("spawn failed: {e}")),
+    }
 }
 
 fn toggle_main_window(app: &tauri::AppHandle) {
@@ -244,7 +250,13 @@ pub fn run() {
                     *state.0.lock().unwrap() = Some(child);
                     eprintln!("[raphael] daemon started on :8765");
                 }
-                Err(e) => eprintln!("[raphael] daemon spawn failed: {e}"),
+                Err(e) => {
+                    if e == "direct_spawn_ok" {
+                        eprintln!("[raphael] daemon started via direct exec");
+                    } else {
+                        eprintln!("[raphael] daemon spawn failed: {e}");
+                    }
+                }
             }
 
             // 2. Sidecar watchdog — 10초마다 health check, 죽었으면 재spawn
