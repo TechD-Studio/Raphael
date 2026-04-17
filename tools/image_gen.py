@@ -199,6 +199,7 @@ class ImageGenTool:
 
     def list_backends(self) -> list[dict]:
         """사용 가능한 백엔드 목록."""
+        import shutil
         from core.secrets import get_secret
         backends = []
 
