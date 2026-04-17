@@ -141,8 +141,8 @@ export default function App() {
 
   useEffect(() => {
     let alive = true;
+    let ensureAttempts = 0;
     (async () => {
-      // 무한 재시도 — sidecar가 뜰 때까지 2초 간격
       while (alive) {
         try {
           await api.health();
@@ -150,7 +150,18 @@ export default function App() {
           setHealthy(true);
           break;
         } catch {
-          await new Promise((r) => setTimeout(r, 2000));
+          // Tauri 환경이면 ensure_daemon 호출하여 sidecar 강제 시작
+          if (ensureAttempts < 3) {
+            try {
+              const { invoke } = await import("@tauri-apps/api/core");
+              await invoke("ensure_daemon");
+              ensureAttempts++;
+              console.log(`[raphael] ensure_daemon attempt ${ensureAttempts}`);
+            } catch {
+              // Tauri가 아닌 환경(브라우저) — 무시
+            }
+          }
+          await new Promise((r) => setTimeout(r, 3000));
         }
       }
       if (alive) {
@@ -192,6 +203,10 @@ export default function App() {
         }
       } catch {
         if (healthy) setHealthy(false);
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("ensure_daemon");
+        } catch {}
       }
     }, 5000);
     return () => clearInterval(id);

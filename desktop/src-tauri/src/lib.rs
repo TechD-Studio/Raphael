@@ -13,6 +13,27 @@ fn daemon_url() -> String {
     "http://127.0.0.1:8765".to_string()
 }
 
+#[tauri::command]
+fn ensure_daemon(app: tauri::AppHandle, state: State<'_, DaemonState>) -> Result<String, String> {
+    // TCP check
+    let alive = std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:8765".parse().unwrap(),
+        std::time::Duration::from_secs(2),
+    ).is_ok();
+    if alive {
+        return Ok("already running".to_string());
+    }
+    eprintln!("[raphael] ensure_daemon: not running, spawning...");
+    kill_stale_daemon();
+    match spawn_daemon(&app) {
+        Ok(child) => {
+            *state.0.lock().unwrap() = Some(child);
+            Ok("started".to_string())
+        }
+        Err(e) => Err(e),
+    }
+}
+
 fn kill_stale_daemon() {
     use std::process::Command;
     #[cfg(unix)]
@@ -263,7 +284,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![daemon_url])
+        .invoke_handler(tauri::generate_handler![daemon_url, ensure_daemon])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
