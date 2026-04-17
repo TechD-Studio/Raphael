@@ -141,11 +141,14 @@ def list_sessions():
                 (m["content"] for m in convo if isinstance(m, dict) and m.get("role") == "user"),
                 "(빈 세션)",
             )
+            turns = sum(1 for m in convo if isinstance(m, dict) and m.get("role") == "user")
+            if turns == 0:
+                continue
             out.append({
                 "id": sid,
                 "agent": agent,
                 "title": (first_user or "(빈)")[:60],
-                "turns": sum(1 for m in convo if isinstance(m, dict) and m.get("role") == "user"),
+                "turns": turns,
                 "mtime": p.stat().st_mtime,
                 "tags": tags,
             })
