@@ -142,14 +142,15 @@ export default function App() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      for (let i = 0; i < 30; i++) {
+      // 무한 재시도 — sidecar가 뜰 때까지 2초 간격
+      while (alive) {
         try {
           await api.health();
           if (!alive) return;
           setHealthy(true);
           break;
         } catch {
-          await new Promise((r) => setTimeout(r, 500));
+          await new Promise((r) => setTimeout(r, 2000));
         }
       }
       if (alive) {
@@ -177,6 +178,24 @@ export default function App() {
       alive = false;
     };
   }, []);
+
+  // 주기적 health check — sidecar가 죽으면 감지하고 재연결 대기
+  useEffect(() => {
+    const id = setInterval(async () => {
+      try {
+        await api.health();
+        if (!healthy) {
+          setHealthy(true);
+          refreshSessions();
+          api.models().then(setModels).catch(() => {});
+          api.healthPanel().then((h) => setOllamaStatus(h.ok ? "ok" : "unreachable")).catch(() => {});
+        }
+      } catch {
+        if (healthy) setHealthy(false);
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [healthy]);
 
   useEffect(() => {
     if (healthy && !activeSid) startNewSession();
