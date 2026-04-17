@@ -271,6 +271,8 @@ def delete_session(sid: str):
         p.unlink()
         deleted = True
     if deleted:
+        orch = _init_runtime()
+        orch.reset_session(sid)
         return {"deleted": True}
     raise HTTPException(404, "세션 없음")
 
@@ -283,13 +285,17 @@ class SessionBulkDeleteReq(BaseModel):
 @app.post("/sessions/delete-bulk")
 def delete_sessions_bulk(req: SessionBulkDeleteReq):
     d = sessions_dir()
+    orch = _init_runtime()
     count = 0
     if req.all:
         for p in list(d.glob("*.json")):
+            sid = p.stem.split("__")[0]
+            orch.reset_session(sid)
             p.unlink()
             count += 1
     else:
         for sid in req.ids:
+            orch.reset_session(sid)
             for p in list(d.glob(f"{sid}*.json")):
                 p.unlink()
                 count += 1
