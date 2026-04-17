@@ -6,7 +6,7 @@ use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-struct DaemonState(Mutex<Option<CommandChild>>);
+struct DaemonState(std::sync::Arc<Mutex<Option<CommandChild>>>);
 
 #[tauri::command]
 fn daemon_url() -> String {
@@ -183,7 +183,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(gs_builder.build())
-        .manage(DaemonState(Mutex::new(None)))
+        .manage(DaemonState(std::sync::Arc::new(Mutex::new(None))))
         .setup(|app| {
             // 1. Sidecar 시작
             let handle = app.handle().clone();
@@ -200,8 +200,7 @@ pub fn run() {
             {
                 let handle2 = app.handle().clone();
                 let state2: State<DaemonState> = app.state();
-                let state_arc = std::sync::Arc::new(state2.0.clone());
-                let arc_clone = state_arc.clone();
+                let arc_clone = state2.0.clone();
                 std::thread::spawn(move || {
                     loop {
                         std::thread::sleep(std::time::Duration::from_secs(10));
@@ -277,29 +276,7 @@ pub fn run() {
                         eprintln!("[raphael] daemon killed");
                     }
                 }
-                RunEvent::Reopen { .. } => {
-                    // macOS: Dock 아이콘 클릭 또는 앱 재활성화 시
-                    // sidecar가 죽어있으면 재spawn
-                    let state: State<DaemonState> = app.state();
-                    let needs_respawn = {
-                        let guard = state.0.lock().unwrap();
-                        guard.is_none()
-                    };
-                    if needs_respawn {
-                        eprintln!("[raphael] sidecar not running, respawning...");
-                        match spawn_daemon(app) {
-                            Ok(child) => {
-                                *state.0.lock().unwrap() = Some(child);
-                                eprintln!("[raphael] daemon restarted on :8765");
-                            }
-                            Err(e) => eprintln!("[raphael] daemon respawn failed: {e}"),
-                        }
-                    }
-                    if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
-                }
+                // watchdog thread handles sidecar respawn automatically
                 _ => {}
             }
         });
