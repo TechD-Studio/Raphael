@@ -160,26 +160,37 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
     kill_stale_daemon();
 
     // 방법 1 (우선): Python uvicorn 직접 실행 — PyInstaller 추출 없이 즉시 시작
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/Users"))
+        .to_string_lossy().to_string();
+    eprintln!("[raphael] HOME={home}");
+
     let python_paths = [
-        // Raphael venv
-        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
-            .join("Raphael/.venv/bin/python3"),
-        // 시스템
-        std::path::PathBuf::from("/opt/homebrew/bin/python3"),
-        std::path::PathBuf::from("/usr/local/bin/python3"),
-        std::path::PathBuf::from("/usr/bin/python3"),
+        // Raphael venv (절대 경로)
+        format!("{home}/Raphael/.venv/bin/python3"),
+        // Homebrew
+        "/opt/homebrew/bin/python3".to_string(),
+        "/usr/local/bin/python3".to_string(),
+        "/usr/bin/python3".to_string(),
     ];
 
-    for py in &python_paths {
-        if !py.exists() { continue; }
-        eprintln!("[raphael] trying Python daemon: {}", py.display());
+    let project_dir = format!("{home}/Raphael");
+    let project_path = std::path::Path::new(&project_dir);
+
+    for py_str in &python_paths {
+        let py = std::path::Path::new(py_str);
+        if !py.exists() {
+            eprintln!("[raphael] skip (not found): {py_str}");
+            continue;
+        }
+        if !project_path.join("interfaces/daemon.py").exists() {
+            eprintln!("[raphael] skip: {project_dir}/interfaces/daemon.py not found");
+            break;
+        }
+        eprintln!("[raphael] trying: {py_str} -m uvicorn (cwd={project_dir})");
         match std::process::Command::new(py)
             .args(["-m", "uvicorn", "interfaces.daemon:app",
                    "--host", "127.0.0.1", "--port", "8765"])
-            .current_dir(
-                std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                    .join("Raphael")
-            )
+            .current_dir(project_path)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
