@@ -1812,8 +1812,15 @@ def _mount_web_ui():
                 return FileResponse(str(file_path))
             return FileResponse(str(_WEB_UI_DIR / "index.html"))
 
+        @app.get("/{filename:path}")
+        async def web_static_fallback(filename: str):
+            """루트 레벨 정적 파일 (vite.svg 등)."""
+            file_path = _WEB_UI_DIR / filename
+            if file_path.is_file() and ".." not in filename:
+                return FileResponse(str(file_path))
+            raise HTTPException(404, "not found")
+
         app.mount("/assets", StaticFiles(directory=str(_WEB_UI_DIR / "assets")), name="web-assets")
-        app.mount("/web", StaticFiles(directory=str(_WEB_UI_DIR), html=True), name="web-root")
         logger.info(f"Web UI: /app → {_WEB_UI_DIR}")
 
 
