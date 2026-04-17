@@ -72,6 +72,7 @@ export default function App() {
   >([]);
   const [dragOver, setDragOver] = useState(false);
   const [activeModel, setActiveModel] = useState("");
+  const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [toolLog, setToolLog] = useState<
     { type: "call" | "result" | "model"; name: string; detail: string; ts: number }[]
   >([]);
@@ -359,6 +360,7 @@ export default function App() {
     setTools([]);
     setPlannerSteps([]);
     setToolLog([]);
+    setGeneratedImages([]);
     const ac = new AbortController();
     abortRef.current = ac;
     refreshSessions();
@@ -384,6 +386,12 @@ export default function App() {
         onToolResult: (d) => {
           const out = d?.error || (d?.output || "").slice(0, 200);
           setToolLog((l) => [...l, { type: "result", name: d?.name || "?", detail: out, ts: Date.now() }]);
+          if (d?.name === "generate_image" && !d?.error) {
+            const pathMatch = (d?.output || "").match(/(\/[^\s\n]+\.(?:png|jpg|jpeg|webp))/);
+            if (pathMatch) {
+              setGeneratedImages((imgs) => [...imgs, pathMatch[1]]);
+            }
+          }
           if (d?.name === "delegate") {
             setPlannerSteps((s) => {
               const next = [...s];
@@ -400,7 +408,8 @@ export default function App() {
         onApproval: (d) => setPendingApproval(d),
         onFinal: (full) => { buf = full; setStreamBuf(full); },
       }, imgs, activeSkill || undefined, ac.signal);
-      setMessages((m) => [...m, { role: "assistant", content: buf || "(빈 응답)" }]);
+      const finalContent = buf || "(빈 응답)";
+      setMessages((m) => [...m, { role: "assistant", content: finalContent }]);
       if (ttsEnabled && buf) api.tts(buf).catch(() => {});
     } catch (e: any) {
       if (e?.name === "AbortError" || ac.signal.aborted) {
@@ -1020,6 +1029,15 @@ export default function App() {
               )}
             </div>
           ))}
+          {generatedImages.length > 0 && (
+            <div className="msg msg-assistant">
+              <div className="content">
+                {generatedImages.map((imgPath, i) => (
+                  <GeneratedImagePreview key={i} path={imgPath} />
+                ))}
+              </div>
+            </div>
+          )}
           {plannerSteps.length > 0 && <PlannerSteps steps={plannerSteps} />}
           {toolLog.length > 0 && streaming && <ToolLogPanel log={toolLog} />}
           {streaming && (
@@ -1394,5 +1412,42 @@ function InlineGeneratedImage({ text }: { text: string }) {
     <div className="generated-image">
       <img src={src} alt="generated" style={{ maxWidth: "100%", maxHeight: 512, borderRadius: 8, marginTop: 8 }} />
     </div>
+  );
+}
+
+function GeneratedImagePreview({ path }: { path: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    const base =
+      window.location.pathname.startsWith("/app")
+        ? window.location.origin
+        : "http://127.0.0.1:8765";
+    (async () => {
+      try {
+        const resp = await fetch(
+          `${base}/file-preview?path=${encodeURIComponent(path)}`,
+        );
+        if (resp.ok) {
+          const blob = await resp.blob();
+          setSrc(URL.createObjectURL(blob));
+        }
+      } catch {}
+    })();
+  }, [path]);
+
+  if (!src) return null;
+  return (
+    <img
+      src={src}
+      alt="generated"
+      style={{
+        maxWidth: "100%",
+        maxHeight: 512,
+        borderRadius: 8,
+        marginTop: 8,
+        display: "block",
+      }}
+    />
   );
 }
