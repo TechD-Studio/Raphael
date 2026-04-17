@@ -1786,6 +1786,55 @@ function SecurityPanel() {
   );
 }
 
+function FactRow({ fact, onDelete }: { fact: ProfileFact; onDelete: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <>
+      <tr
+        onClick={() => setExpanded(!expanded)}
+        style={{ cursor: "pointer" }}
+      >
+        <td style={{ maxWidth: 300 }}>
+          <span style={{ marginRight: 6, fontSize: 10, color: "var(--text-muted)" }}>
+            {expanded ? "▼" : "▶"}
+          </span>
+          {fact.text.length > 60 ? fact.text.slice(0, 60) + "..." : fact.text}
+        </td>
+        <td style={{ fontSize: 11 }}>{fact.source}</td>
+        <td style={{ fontSize: 11 }}>{fact.added.replace("T", " ")}</td>
+        <td className="actions">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+          >
+            삭제
+          </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td
+            colSpan={4}
+            style={{
+              background: "var(--panel-bg)",
+              padding: "10px 14px",
+              fontSize: 13,
+              whiteSpace: "pre-wrap",
+              lineHeight: 1.5,
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            {fact.text}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 function ProfilePanel() {
   const [facts, setFacts] = useState<ProfileFact[]>([]);
   const [text, setText] = useState("");
@@ -1862,14 +1911,7 @@ function ProfilePanel() {
             </tr>
           )}
           {facts.map((f) => (
-            <tr key={f.id}>
-              <td>{f.text}</td>
-              <td style={{ fontSize: 11 }}>{f.source}</td>
-              <td style={{ fontSize: 11 }}>{f.added.replace("T", " ")}</td>
-              <td className="actions">
-                <button onClick={() => del(f.id)}>삭제</button>
-              </td>
-            </tr>
+            <FactRow key={f.id} fact={f} onDelete={() => del(f.id)} />
           ))}
         </tbody>
       </table>
