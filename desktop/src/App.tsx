@@ -410,7 +410,15 @@ export default function App() {
     let buf = "";
     try {
       await api.sendMessage(activeSid, text, targetAgent || undefined, {
-        onChunk: (t) => { buf += t; setStreamBuf(buf); },
+        onChunk: (t) => {
+          buf += t;
+          const clean = buf
+            .replace(/<tool\s+name="[^"]*">[\s\S]*?<\/tool>/g, "")
+            .replace(/<tool_results?>[\s\S]*?<\/tool_results?>/g, "")
+            .replace(/<tool_result[^>]*>[\s\S]*?<\/tool_result>/g, "")
+            .trim();
+          setStreamBuf(clean);
+        },
         onModelCall: (d) => {
           const model = d?.model || "?";
           if (activeModel && model !== activeModel) {
@@ -451,8 +459,12 @@ export default function App() {
         onApproval: (d) => setPendingApproval(d),
         onFinal: (full) => { buf = full; setStreamBuf(full); },
       }, imgs, activeSkill || undefined, ac.signal);
-      const finalContent = buf || "(빈 응답)";
-      setMessages((m) => [...m, { role: "assistant", content: finalContent }]);
+      const cleanBuf = (buf || "(빈 응답)")
+        .replace(/<tool\s+name="[^"]*">[\s\S]*?<\/tool>/g, "")
+        .replace(/<tool_results?>[\s\S]*?<\/tool_results?>/g, "")
+        .replace(/<tool_result[^>]*>[\s\S]*?<\/tool_result>/g, "")
+        .trim() || "(도구 실행 완료)";
+      setMessages((m) => [...m, { role: "assistant", content: cleanBuf }]);
       if (ttsEnabled && buf) api.tts(buf).catch(() => {});
     } catch (e: any) {
       if (e?.name === "AbortError" || ac.signal.aborted) {
