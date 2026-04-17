@@ -1505,7 +1505,7 @@ def prometheus_metrics():
 
 
 @app.get("/health-panel")
-def health_panel():
+async def health_panel():
     orch = _init_runtime()
     agents_list = [a.name for a in orch._agents.values()]
     try:
@@ -1516,8 +1516,17 @@ def health_panel():
         (s.get("prompt", 0) + s.get("completion", 0)) for s in stats.values()
     )
     total_calls = sum(s.get("calls", 0) for s in stats.values())
+
+    ollama_ok = False
+    try:
+        health = await orch.router.health_check()
+        ollama_ok = health.get("status") == "ok"
+    except Exception:
+        pass
+
     return {
-        "ok": True,
+        "ok": ollama_ok,
+        "ollama_status": "ok" if ollama_ok else "unreachable",
         "agents": agents_list,
         "models_available": list(orch.router.list_models().keys()),
         "current_model": orch.router.current_key,
