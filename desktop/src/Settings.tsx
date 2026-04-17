@@ -73,6 +73,8 @@ export default function Settings({ onBack }: { onBack: () => void }) {
           <>
             <CustomInstructionsPanel />
             <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid var(--border)" }} />
+            <MemoryPanel />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid var(--border)" }} />
             <AgentsPanel />
             <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid var(--border)" }} />
             <ProfilePanel />
@@ -103,6 +105,118 @@ export default function Settings({ onBack }: { onBack: () => void }) {
         )}
         {tab === "rag" && <RagPanel />}
       </main>
+    </div>
+  );
+}
+
+function MemoryPanel() {
+  const [context, setContext] = useState("");
+  const [log, setLog] = useState("");
+  const [patterns, setPatterns] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [tab, setTab] = useState<"context" | "log" | "patterns">("context");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [c, l, p] = await Promise.all([
+          api.projectContext(),
+          api.dailyLog(),
+          api.successPatterns(),
+        ]);
+        setContext(c.text);
+        setLog(l.today || l.recent || "(기록 없음)");
+        setPatterns(p.text || "(피드백 +1 기록 없음)");
+      } catch {}
+    })();
+  }, []);
+
+  async function saveContext() {
+    setSaving(true);
+    try {
+      await api.saveProjectContext(context);
+      setMsg("프로젝트 컨텍스트 저장됨");
+    } catch {}
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="agent-editor">
+      <h3>기억 시스템</h3>
+      <p className="muted">
+        대화 내용에서 자동으로 작업 일지, 결정 사항, 성공 패턴을 추출하여
+        다음 대화에 활용합니다.
+      </p>
+      {msg && <div className="ok-msg">{msg}</div>}
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        {(["context", "log", "patterns"] as const).map((t) => (
+          <button
+            key={t}
+            className={tab === t ? "primary" : ""}
+            onClick={() => setTab(t)}
+            style={tab !== t ? { background: "var(--bg-card)", color: "var(--text-sub)", border: "1px solid var(--input-border)" } : {}}
+          >
+            {t === "context" ? "프로젝트 컨텍스트" : t === "log" ? "오늘 작업 일지" : "성공 패턴"}
+          </button>
+        ))}
+      </div>
+
+      {tab === "context" && (
+        <>
+          <textarea
+            value={context}
+            onChange={(e) => setContext(e.target.value)}
+            placeholder={"# 프로젝트 컨텍스트\n\n- 목적: ...\n- 서버: ...\n- 현재 버전: ...\n\n## 주요 결정\n- [날짜] 결정 내용"}
+            rows={10}
+            style={{ width: "100%" }}
+          />
+          <div className="row">
+            <button className="primary" onClick={saveContext} disabled={saving}>
+              {saving ? "저장 중..." : "저장"}
+            </button>
+          </div>
+          <p className="muted" style={{ marginTop: 6 }}>
+            대화 중 결정 사항("~로 하겠습니다", "보류합니다" 등)은 자동 추출됩니다.
+          </p>
+        </>
+      )}
+
+      {tab === "log" && (
+        <pre style={{
+          background: "var(--panel-bg)",
+          border: "1px solid var(--border)",
+          borderRadius: 6,
+          padding: 12,
+          fontSize: 12,
+          whiteSpace: "pre-wrap",
+          maxHeight: 400,
+          overflowY: "auto",
+        }}>
+          {log}
+        </pre>
+      )}
+
+      {tab === "patterns" && (
+        <>
+          <pre style={{
+            background: "var(--panel-bg)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            padding: 12,
+            fontSize: 12,
+            whiteSpace: "pre-wrap",
+            maxHeight: 400,
+            overflowY: "auto",
+          }}>
+            {patterns}
+          </pre>
+          <p className="muted" style={{ marginTop: 6 }}>
+            채팅에서 👍 피드백을 주면 해당 응답 패턴이 자동 학습됩니다.
+          </p>
+        </>
+      )}
     </div>
   );
 }

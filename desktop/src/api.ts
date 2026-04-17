@@ -330,6 +330,15 @@ export const api = {
       output?: string;
     }>("/system/update", {}),
 
+  dailyLog: () =>
+    jget<{ today: string; recent: string }>("/memory/daily-log"),
+  projectContext: () =>
+    jget<{ text: string }>("/memory/context"),
+  saveProjectContext: (text: string) =>
+    jpost<{ ok: boolean }>("/memory/context", { text }),
+  successPatterns: () =>
+    jget<{ text: string }>("/memory/patterns"),
+
   customInstructions: () =>
     jget<{ text: string }>("/settings/custom-instructions"),
   saveCustomInstructions: (text: string) =>

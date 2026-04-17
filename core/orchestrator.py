@@ -293,6 +293,22 @@ class Orchestrator:
             logger.debug(f"커스텀 지시문 주입 실패: {e}")
 
         try:
+            from core.memory import build_memory_context
+            mem = build_memory_context()
+            if mem:
+                agent._conversation = [
+                    m for m in agent._conversation
+                    if not (m.get("role") == "system" and m.get("content", "").startswith("## 기억"))
+                ]
+                insert_at = 1 if agent._conversation and agent._conversation[0]["role"] == "system" else 0
+                agent._conversation.insert(insert_at, {
+                    "role": "system",
+                    "content": f"## 기억 (프로젝트 컨텍스트 + 오늘 작업 + 성공 패턴)\n{mem}",
+                })
+        except Exception as e:
+            logger.debug(f"기억 주입 실패: {e}")
+
+        try:
             response = await agent.handle(sanitized, **kwargs)
             activity.assistant_message(response)
 
@@ -300,6 +316,20 @@ class Orchestrator:
                 review = await self._run_auto_review(agent, sanitized, response, activity, **kwargs)
                 if review:
                     response = f"{response}\n\n---\n\n🔍 **자동 검토**\n{review}"
+
+            try:
+                from core.memory import (
+                    append_daily_log, summarize_session_for_log,
+                    auto_extract_decisions, append_project_decision,
+                )
+                log_entry = summarize_session_for_log(
+                    sanitized, response, agent.name, self.router.current_model_name,
+                )
+                append_daily_log(log_entry)
+                for d in auto_extract_decisions(sanitized, response):
+                    append_project_decision(d)
+            except Exception as e:
+                logger.debug(f"기억 기록 실패: {e}")
         finally:
             if session_id is not None:
                 self._sessions[(session_id, agent.name)] = copy.deepcopy(agent._conversation)

@@ -825,6 +825,37 @@ def finetune_delete(name: str):
     return FineTuneTool().delete(name)
 
 
+# ── 기억 시스템 ──────────────────────────────────────────
+
+@app.get("/memory/daily-log")
+def get_daily_log_api():
+    from core.memory import get_daily_log, get_recent_logs
+    return {"today": get_daily_log(), "recent": get_recent_logs(3)}
+
+
+@app.get("/memory/context")
+def get_context_api():
+    from core.memory import get_project_context
+    return {"text": get_project_context()}
+
+
+class ContextReq(BaseModel):
+    text: str
+
+
+@app.post("/memory/context")
+def save_context_api(req: ContextReq):
+    from core.memory import update_project_context
+    update_project_context(req.text)
+    return {"ok": True}
+
+
+@app.get("/memory/patterns")
+def get_patterns_api():
+    from core.memory import learn_from_feedback
+    return {"text": learn_from_feedback()}
+
+
 @app.get("/settings/custom-instructions")
 def get_custom_instructions():
     from config.settings import get_settings
