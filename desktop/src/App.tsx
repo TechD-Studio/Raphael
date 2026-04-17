@@ -585,12 +585,30 @@ export default function App() {
   }
 
   if (view === "settings") {
+    if (!healthy) {
+      return (
+        <div className="settings-root">
+          <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>
+            데몬 연결 대기 중...
+          </div>
+        </div>
+      );
+    }
     return <Settings onBack={() => {
       setView("chat");
       api.models().then(setModels).catch(() => {});
     }} />;
   }
   if (view === "dashboard") {
+    if (!healthy) {
+      return (
+        <div className="settings-root">
+          <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>
+            데몬 연결 대기 중...
+          </div>
+        </div>
+      );
+    }
     return <Dashboard onBack={() => setView("chat")} />;
   }
 
