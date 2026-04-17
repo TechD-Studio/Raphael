@@ -99,6 +99,27 @@ fn kill_stale_daemon() {
     }
 }
 
+fn cleanup_pyinstaller_temp() {
+    #[cfg(unix)]
+    {
+        use std::process::Command;
+        // PyInstaller _MEI* 임시 디렉토리 정리 — 누적되면 새 추출이 극도로 느려짐
+        if let Ok(output) = Command::new("sh")
+            .args(["-c", "find /var/folders -maxdepth 5 -name '_MEI*' -type d -mmin +10 2>/dev/null"])
+            .output()
+        {
+            let dirs = String::from_utf8_lossy(&output.stdout);
+            let count = dirs.lines().filter(|l| !l.is_empty()).count();
+            if count > 0 {
+                let _ = Command::new("sh")
+                    .args(["-c", "find /var/folders -maxdepth 5 -name '_MEI*' -type d -mmin +10 -exec rm -rf {} + 2>/dev/null"])
+                    .output();
+                eprintln!("[raphael] cleaned {count} stale _MEI* dirs");
+            }
+        }
+    }
+}
+
 fn remove_quarantine() {
     #[cfg(target_os = "macos")]
     {
@@ -128,6 +149,7 @@ fn remove_quarantine() {
 }
 
 fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
+    cleanup_pyinstaller_temp();
     remove_quarantine();
     kill_stale_daemon();
 
