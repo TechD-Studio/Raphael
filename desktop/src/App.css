@@ -168,6 +168,7 @@ body {
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; }
 .dot.ok { background: #4ade80; }
+.dot.warn { background: #f59e0b; }
 .dot.bad { background: #ef4444; }
 .sidebar-foot select {
   background: var(--sidebar-hover);

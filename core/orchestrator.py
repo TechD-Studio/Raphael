@@ -362,6 +362,12 @@ class Orchestrator:
             return False
         if agent.name not in ("coder", "coding", "main"):
             return False
+        try:
+            from config.settings import get_model_config
+            if get_model_config(self.router.current_key).get("provider") == "claude_cli":
+                return False
+        except Exception:
+            pass
         from config.settings import get_settings
         if not (get_settings().get("agents") or {}).get("auto_review", True):
             return False

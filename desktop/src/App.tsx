@@ -26,6 +26,7 @@ export default function App() {
   const [streamBuf, setStreamBuf] = useState("");
   const [models, setModels] = useState<ModelsInfo | null>(null);
   const [healthy, setHealthy] = useState<boolean>(false);
+  const [ollamaStatus, setOllamaStatus] = useState<"ok" | "unreachable" | "checking">("checking");
   const [tools, setTools] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchHits, setSearchHits] = useState<SessionHit[]>([]);
@@ -155,6 +156,12 @@ export default function App() {
         try {
           setModels(await api.models());
         } catch {}
+        try {
+          const h = await api.healthPanel();
+          setOllamaStatus(h.ok ? "ok" : "unreachable");
+        } catch {
+          setOllamaStatus("unreachable");
+        }
         try {
           const ags = await api.agents();
           setAgentNames(ags.filter((a) => a.active).map((a) => a.name));
@@ -909,8 +916,16 @@ export default function App() {
         </div>
         <SidebarStats healthy={healthy} />
         <div className="sidebar-foot">
-          <span className={`dot ${healthy ? "ok" : "bad"}`} />
-          <span style={{ fontSize: 12 }}>{healthy ? "연결됨" : "데몬 대기..."}</span>
+          <span className={`dot ${healthy && ollamaStatus === "ok" ? "ok" : healthy ? "warn" : "bad"}`} />
+          <span style={{ fontSize: 12 }}>
+            {!healthy
+              ? "데몬 대기..."
+              : ollamaStatus === "ok"
+                ? "연결됨"
+                : ollamaStatus === "checking"
+                  ? "확인 중..."
+                  : "Ollama 연결 실패"}
+          </span>
           {models && (
             <select
               value={models.current}

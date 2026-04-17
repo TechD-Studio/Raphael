@@ -360,11 +360,17 @@ class AgentBase(ABC):
     # ── 반사적 사고 ──────────────────────────────────────
 
     async def _self_reflect(self, user_input: str, response: str) -> str:
-        """응답 품질 자체 평가. 부족하면 보완 시도. 짧은 대화는 스킵."""
+        """응답 품질 자체 평가. 부족하면 보완 시도. Claude/짧은 대화는 스킵."""
         if len(response.strip()) < 10:
             return response
         if len(user_input.strip()) < 30 and len(response.strip()) < 200:
             return response
+        try:
+            from config.settings import get_model_config
+            if get_model_config(self.router.current_key).get("provider") == "claude_cli":
+                return response
+        except Exception:
+            pass
         if any(kw in response for kw in ("⚠ 최대 반복", "⚠ 모델이 빈 응답")):
             return response
         reflect_prompt = (
