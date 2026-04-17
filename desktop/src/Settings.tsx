@@ -20,7 +20,7 @@ type Tab =
   | "server"
   | "rag";
 
-export default function Settings({ onBack }: { onBack: () => void }) {
+export default function Settings({ onBack, onOllamaChange }: { onBack: () => void; onOllamaChange?: () => void }) {
   const [tab, setTab] = useState<Tab>("agents");
   const [modelsInfo, setModelsInfo] = useState<ModelsInfo | null>(null);
 
@@ -94,7 +94,7 @@ export default function Settings({ onBack }: { onBack: () => void }) {
         )}
         {tab === "server" && (
           <>
-            <ServerPanel />
+            <ServerPanel onSaved={onOllamaChange} />
             <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
             <PoolPanel />
             <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
@@ -2129,7 +2129,7 @@ function PoolPanel() {
   );
 }
 
-function ServerPanel() {
+function ServerPanel({ onSaved }: { onSaved?: () => void }) {
   const [form, setForm] = useState<{
     host: string;
     port: number;
@@ -2159,7 +2159,14 @@ function ServerPanel() {
     setMsg("");
     try {
       await api.saveServerSettings(form);
-      setMsg("저장 완료. 다음 요청부터 적용됩니다.");
+      // Ollama 연결 확인
+      try {
+        const h = await api.healthPanel();
+        setMsg(h.ok ? "저장 완료 — Ollama 연결 성공" : "저장 완료 — Ollama 연결 실패");
+      } catch {
+        setMsg("저장 완료 — 연결 확인 실패");
+      }
+      onSaved?.();
     } catch (e: any) {
       setErr(e.message);
     } finally {

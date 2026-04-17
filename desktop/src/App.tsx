@@ -701,6 +701,9 @@ export default function App() {
     return <Settings onBack={() => {
       setView("chat");
       api.models().then(setModels).catch(() => {});
+      api.healthPanel().then((h) => setOllamaStatus(h.ok ? "ok" : "unreachable")).catch(() => setOllamaStatus("unreachable"));
+    }} onOllamaChange={() => {
+      api.healthPanel().then((h) => setOllamaStatus(h.ok ? "ok" : "unreachable")).catch(() => setOllamaStatus("unreachable"));
     }} />;
   }
   if (view === "dashboard") {
