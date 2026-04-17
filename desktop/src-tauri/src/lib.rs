@@ -138,47 +138,26 @@ fn spawn_daemon(app: &tauri::AppHandle) -> Result<CommandChild, String> {
     })();
 
     if sidecar_result.is_ok() {
-        // sidecar spawn 후 실제 포트 바인딩 대기 (최대 20초)
-        eprintln!("[raphael] sidecar spawned, waiting for port...");
-        for _ in 0..20 {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            if std::net::TcpStream::connect_timeout(
-                &"127.0.0.1:8765".parse().unwrap(),
-                std::time::Duration::from_millis(500),
-            ).is_ok() {
-                eprintln!("[raphael] port 8765 ready");
-                return sidecar_result;
-            }
-        }
-        eprintln!("[raphael] sidecar started but port not ready after 20s, trying direct exec...");
+        eprintln!("[raphael] sidecar spawned (non-blocking)");
+        return sidecar_result;
     }
 
     // 방법 2: sidecar 실패 시 직접 실행 (fallback)
-    let exe_dir = app.path().resource_dir().unwrap_or_default();
-    let raphaeld = exe_dir.join("raphaeld");
-    let raphaeld_path = if raphaeld.exists() {
-        raphaeld
-    } else {
-        // macOS Contents/MacOS 경로
-        std::env::current_exe()
-            .unwrap_or_default()
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join("raphaeld")
-    };
+    let raphaeld_path = std::env::current_exe()
+        .unwrap_or_default()
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join("raphaeld");
 
     if raphaeld_path.exists() {
         eprintln!("[raphael] fallback: direct exec {}", raphaeld_path.display());
         match std::process::Command::new(&raphaeld_path)
             .args(["--host", "127.0.0.1", "--port", "8765"])
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
             .spawn()
         {
-            Ok(_) => {
-                eprintln!("[raphael] fallback daemon spawned");
-                return sidecar_result;
-            }
+            Ok(_) => eprintln!("[raphael] fallback daemon spawned"),
             Err(e) => eprintln!("[raphael] fallback spawn failed: {e}"),
         }
     }
