@@ -196,7 +196,38 @@ pub fn run() {
                 Err(e) => eprintln!("[raphael] daemon spawn failed: {e}"),
             }
 
-            // 2. Tray Icon (실패해도 앱은 계속)
+            // 2. Sidecar watchdog — 10초마다 health check, 죽었으면 재spawn
+            {
+                let handle2 = app.handle().clone();
+                let state2: State<DaemonState> = app.state();
+                let state_arc = std::sync::Arc::new(state2.0.clone());
+                let arc_clone = state_arc.clone();
+                std::thread::spawn(move || {
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(10));
+                        // Quick TCP check
+                        let alive = std::net::TcpStream::connect_timeout(
+                            &"127.0.0.1:8765".parse().unwrap(),
+                            std::time::Duration::from_secs(2),
+                        )
+                        .is_ok();
+                        if !alive {
+                            eprintln!("[raphael] watchdog: sidecar unreachable, respawning...");
+                            // Clear old child
+                            { let _ = arc_clone.lock().unwrap().take(); }
+                            match spawn_daemon(&handle2) {
+                                Ok(child) => {
+                                    *arc_clone.lock().unwrap() = Some(child);
+                                    eprintln!("[raphael] watchdog: daemon restarted");
+                                }
+                                Err(e) => eprintln!("[raphael] watchdog: respawn failed: {e}"),
+                            }
+                        }
+                    }
+                });
+            }
+
+            // 3. Tray Icon (실패해도 앱은 계속)
             if let Err(e) = (|| -> tauri::Result<()> {
                 let show_item =
                     MenuItem::with_id(app, "show", "Raphael 열기", true, None::<&str>)?;
@@ -237,13 +268,39 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            if let RunEvent::ExitRequested { .. } = event {
-                let state: State<DaemonState> = app.state();
-                let child_opt = state.0.lock().unwrap().take();
-                if let Some(child) = child_opt {
-                    let _ = child.kill();
-                    eprintln!("[raphael] daemon killed");
+            match event {
+                RunEvent::ExitRequested { .. } => {
+                    let state: State<DaemonState> = app.state();
+                    let child_opt = state.0.lock().unwrap().take();
+                    if let Some(child) = child_opt {
+                        let _ = child.kill();
+                        eprintln!("[raphael] daemon killed");
+                    }
                 }
+                RunEvent::Reopen { .. } => {
+                    // macOS: Dock 아이콘 클릭 또는 앱 재활성화 시
+                    // sidecar가 죽어있으면 재spawn
+                    let state: State<DaemonState> = app.state();
+                    let needs_respawn = {
+                        let guard = state.0.lock().unwrap();
+                        guard.is_none()
+                    };
+                    if needs_respawn {
+                        eprintln!("[raphael] sidecar not running, respawning...");
+                        match spawn_daemon(app) {
+                            Ok(child) => {
+                                *state.0.lock().unwrap() = Some(child);
+                                eprintln!("[raphael] daemon restarted on :8765");
+                            }
+                            Err(e) => eprintln!("[raphael] daemon respawn failed: {e}"),
+                        }
+                    }
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                }
+                _ => {}
             }
         });
 }
