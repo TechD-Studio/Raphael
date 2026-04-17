@@ -17,6 +17,7 @@ import "highlight.js/styles/github-dark.css";
 import "./App.css";
 
 export default function App() {
+  const [agreed, setAgreed] = useState(() => localStorage.getItem("raphael-agreed") === "true");
   const [view, setView] = useState<"chat" | "settings" | "dashboard">("chat");
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [activeSid, setActiveSid] = useState<string>("");
@@ -589,6 +590,68 @@ export default function App() {
     } catch (e) {
       alert(`token stats 실패: ${e}`);
     }
+  }
+
+  if (!agreed) {
+    return (
+      <div style={{
+        height: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "var(--bg)",
+        color: "var(--text)",
+        padding: 40,
+      }}>
+        <div style={{
+          maxWidth: 560,
+          background: "var(--bg-card)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          padding: "32px 36px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
+        }}>
+          <h2 style={{ margin: "0 0 16px", color: "var(--err-text)" }}>
+            Raphael AI Agent
+          </h2>
+          <div style={{ fontSize: 14, lineHeight: 1.7, marginBottom: 20 }}>
+            <p style={{ fontWeight: 600, marginBottom: 12 }}>
+              이 소프트웨어를 사용하기 전에 다음 사항을 반드시 확인하세요.
+            </p>
+            <p>
+              Raphael은 <strong>실제 컴퓨터에서 파일 생성, 코드 실행, 셸 명령 실행, 웹 접속</strong> 등을
+              수행할 수 있는 <strong>강력한 AI 에이전트</strong>입니다.
+            </p>
+            <p>
+              AI 모델은 의도하지 않은 동작을 할 수 있으며, 다음과 같은 위험이 존재합니다:
+            </p>
+            <ul style={{ paddingLeft: 20, margin: "8px 0" }}>
+              <li>파일이 의도치 않게 생성, 수정 또는 삭제될 수 있습니다</li>
+              <li>셸 명령이 시스템에 영향을 줄 수 있습니다</li>
+              <li>외부 네트워크에 요청을 보낼 수 있습니다</li>
+              <li>AI의 판단이 부정확하거나 잘못될 수 있습니다</li>
+            </ul>
+            <p>
+              <strong>중요한 데이터는 반드시 백업</strong>하시고, 위험 도구 실행 시
+              승인 팝업을 신중하게 검토하세요.
+              사용으로 인한 모든 결과는 사용자의 책임입니다.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <button
+              className="primary"
+              style={{ padding: "10px 24px", fontSize: 14 }}
+              onClick={() => {
+                localStorage.setItem("raphael-agreed", "true");
+                setAgreed(true);
+              }}
+            >
+              동의하고 시작
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (view === "settings") {
