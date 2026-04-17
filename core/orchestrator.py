@@ -376,9 +376,17 @@ class Orchestrator:
     )
     _COMPLEX_MIN_LEN = 80
 
+    _SIMPLE_TASK_KEYWORDS = (
+        "그림", "그려", "이미지", "사진", "일러스트", "image", "draw", "photo",
+        "검색", "찾아", "알려줘", "설명해", "번역",
+        "search", "find", "explain", "translate",
+    )
+
     def _auto_complexity_route(self, text: str, current: AgentBase) -> AgentBase | None:
-        """복잡한 요청이면 planner로 자동 라우팅."""
+        """복잡한 요청이면 planner로 자동 라우팅. 단순 도구 호출은 제외."""
         if "planner" not in self._agents:
+            return None
+        if any(kw in text for kw in self._SIMPLE_TASK_KEYWORDS):
             return None
         has_keyword = any(kw in text for kw in self._COMPLEX_KEYWORDS)
         is_long = len(text) >= self._COMPLEX_MIN_LEN
