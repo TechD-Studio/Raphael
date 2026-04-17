@@ -313,11 +313,13 @@ class AgentBase(ABC):
             # 약한 모델이 content 없이 write_file을 반복 호출하면 자동 에스컬레이션
             # (설정에 claude/상위 모델이 포함되어 있을 때만 작동. 기본은 gemma 내부만.)
             self._empty_write_count = getattr(self, "_empty_write_count", 0)
-            if any("ESCALATE_EMPTY_CONTENT" in (r.output or "") for r in results):
-                self._empty_write_count += 1
+            empty_this_round = sum(1 for r in results if "ESCALATE_EMPTY_CONTENT" in (r.output or ""))
+            if empty_this_round > 0:
+                self._empty_write_count += empty_this_round
             else:
                 self._empty_write_count = 0
-            # 2번 연속 빈 content 실패 시에만 에스컬레이션 시도
+            # 2번 누적 빈 content → 즉시 에스컬레이션
+            logger.debug(f"[{self.name}] empty_write_count={self._empty_write_count}, escalated={getattr(self, '_escalated', False)}")
             if self._empty_write_count >= 2 and not getattr(self, "_escalated", False):
                 if True:
                     from config.settings import get_settings as _gs
