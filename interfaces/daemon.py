@@ -1136,10 +1136,12 @@ def file_preview(path: str):
     from tools.path_guard import check_path
 
     p = _P(path).expanduser().resolve()
-    try:
-        check_path(str(p))
-    except Exception:
-        raise HTTPException(403, "path not allowed")
+    raphael_dir = _P.home() / ".raphael"
+    if not str(p).startswith(str(raphael_dir)):
+        try:
+            check_path(str(p))
+        except Exception:
+            raise HTTPException(403, "path not allowed")
     if not p.exists():
         raise HTTPException(404, "file not found")
     suffix = p.suffix.lower()
