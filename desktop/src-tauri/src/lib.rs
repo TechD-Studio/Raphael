@@ -106,33 +106,84 @@ fn kill_stale_daemon() {
 fn spawn_daemon(app: &tauri::AppHandle) -> Result<CommandChild, String> {
     kill_stale_daemon();
 
-    let sidecar = app
-        .shell()
-        .sidecar("raphaeld")
-        .map_err(|e| format!("sidecar lookup: {e}"))?;
-    let (mut rx, child) = sidecar
-        .args(["--port", "8765"])
-        .spawn()
-        .map_err(|e| format!("sidecar spawn: {e}"))?;
-    tauri::async_runtime::spawn(async move {
-        while let Some(event) = rx.recv().await {
-            match event {
-                CommandEvent::Stdout(line) => {
-                    eprintln!("[raphaeld] {}", String::from_utf8_lossy(&line))
+    // 방법 1: 표준 sidecar
+    let sidecar_result = (|| -> Result<CommandChild, String> {
+        let sidecar = app
+            .shell()
+            .sidecar("raphaeld")
+            .map_err(|e| format!("sidecar lookup: {e}"))?;
+        let (mut rx, child) = sidecar
+            .args(["--host", "127.0.0.1", "--port", "8765"])
+            .spawn()
+            .map_err(|e| format!("sidecar spawn: {e}"))?;
+        tauri::async_runtime::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                match event {
+                    CommandEvent::Stdout(line) => {
+                        eprintln!("[raphaeld] {}", String::from_utf8_lossy(&line))
+                    }
+                    CommandEvent::Stderr(line) => {
+                        eprintln!("[raphaeld] {}", String::from_utf8_lossy(&line))
+                    }
+                    CommandEvent::Error(e) => eprintln!("[raphaeld error] {e}"),
+                    CommandEvent::Terminated(t) => {
+                        eprintln!("[raphaeld terminated] code={:?}", t.code);
+                        break;
+                    }
+                    _ => {}
                 }
-                CommandEvent::Stderr(line) => {
-                    eprintln!("[raphaeld] {}", String::from_utf8_lossy(&line))
-                }
-                CommandEvent::Error(e) => eprintln!("[raphaeld error] {e}"),
-                CommandEvent::Terminated(t) => {
-                    eprintln!("[raphaeld terminated] code={:?}", t.code);
-                    break;
-                }
-                _ => {}
+            }
+        });
+        Ok(child)
+    })();
+
+    if sidecar_result.is_ok() {
+        // sidecar spawn 후 실제 포트 바인딩 대기 (최대 20초)
+        eprintln!("[raphael] sidecar spawned, waiting for port...");
+        for _ in 0..20 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            if std::net::TcpStream::connect_timeout(
+                &"127.0.0.1:8765".parse().unwrap(),
+                std::time::Duration::from_millis(500),
+            ).is_ok() {
+                eprintln!("[raphael] port 8765 ready");
+                return sidecar_result;
             }
         }
-    });
-    Ok(child)
+        eprintln!("[raphael] sidecar started but port not ready after 20s, trying direct exec...");
+    }
+
+    // 방법 2: sidecar 실패 시 직접 실행 (fallback)
+    let exe_dir = app.path().resource_dir().unwrap_or_default();
+    let raphaeld = exe_dir.join("raphaeld");
+    let raphaeld_path = if raphaeld.exists() {
+        raphaeld
+    } else {
+        // macOS Contents/MacOS 경로
+        std::env::current_exe()
+            .unwrap_or_default()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("raphaeld")
+    };
+
+    if raphaeld_path.exists() {
+        eprintln!("[raphael] fallback: direct exec {}", raphaeld_path.display());
+        match std::process::Command::new(&raphaeld_path)
+            .args(["--host", "127.0.0.1", "--port", "8765"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(_) => {
+                eprintln!("[raphael] fallback daemon spawned");
+                return sidecar_result;
+            }
+            Err(e) => eprintln!("[raphael] fallback spawn failed: {e}"),
+        }
+    }
+
+    sidecar_result
 }
 
 fn toggle_main_window(app: &tauri::AppHandle) {
