@@ -17,6 +17,7 @@ fn kill_stale_daemon() {
     use std::process::Command;
     #[cfg(unix)]
     {
+        // 1. Kill any process on port 8765
         if let Ok(output) = Command::new("lsof")
             .args(["-ti", "tcp:8765"])
             .output()
@@ -35,11 +36,47 @@ fn kill_stale_daemon() {
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
+        // 2. Kill any stale raphaeld sidecar processes
+        if let Ok(output) = Command::new("pgrep")
+            .args(["-f", "raphaeld"])
+            .output()
+        {
+            let pids = String::from_utf8_lossy(&output.stdout);
+            for pid in pids.split_whitespace() {
+                if let Ok(pid_num) = pid.trim().parse::<u32>() {
+                    let my_pid = std::process::id();
+                    if pid_num != my_pid {
+                        eprintln!("[raphael] killing stale raphaeld (PID {pid_num})");
+                        let _ = Command::new("kill").arg(pid.trim()).output();
+                    }
+                }
+            }
+        }
+        // 3. Kill any other raphael-desktop instances
+        if let Ok(output) = Command::new("pgrep")
+            .args(["-f", "raphael-desktop"])
+            .output()
+        {
+            let pids = String::from_utf8_lossy(&output.stdout);
+            for pid in pids.split_whitespace() {
+                if let Ok(pid_num) = pid.trim().parse::<u32>() {
+                    let my_pid = std::process::id();
+                    if pid_num != my_pid {
+                        eprintln!("[raphael] killing stale app instance (PID {pid_num})");
+                        let _ = Command::new("kill").arg(pid.trim()).output();
+                    }
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
     #[cfg(windows)]
     {
         let _ = Command::new("cmd")
             .args(["/C", "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :8765 ^| findstr LISTENING') do taskkill /F /PID %a"])
+            .output();
+        let _ = Command::new("taskkill")
+            .args(["/F", "/IM", "raphaeld.exe"])
             .output();
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
