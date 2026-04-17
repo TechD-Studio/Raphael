@@ -211,19 +211,33 @@ async def reindex_sessions():
 
 @app.get("/sessions/{sid}/export")
 def export_session(sid: str, fmt: str = "markdown"):
+    convo = None
+    agent = ""
     s = Session.load(sid)
-    if not s:
+    if s:
+        convo = s.conversation
+        agent = s.agent
+    else:
+        for p in sessions_dir().glob(f"{sid}__*.json"):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                convo = data if isinstance(data, list) else data.get("conversation", [])
+                agent = p.stem.split("__")[1] if "__" in p.stem else ""
+                break
+            except Exception:
+                pass
+    if convo is None:
         raise HTTPException(404, "세션 없음")
     if fmt == "json":
         content = json.dumps(
-            {"id": s.id, "agent": s.agent, "conversation": s.conversation},
+            {"id": sid, "agent": agent, "conversation": convo},
             ensure_ascii=False,
             indent=2,
         )
-        return {"format": "json", "content": content, "filename": f"{s.id}.json"}
+        return {"format": "json", "content": content, "filename": f"{sid}.json"}
     # markdown
-    lines = [f"# Raphael 대화 — {s.id}\n"]
-    for m in s.conversation:
+    lines = [f"# Raphael 대화 — {sid}\n"]
+    for m in convo:
         role = m.get("role", "")
         content = m.get("content", "")
         if role == "user":
@@ -235,7 +249,7 @@ def export_session(sid: str, fmt: str = "markdown"):
     return {
         "format": "markdown",
         "content": "\n".join(lines),
-        "filename": f"{s.id}.md",
+        "filename": f"{sid}.md",
     }
 
 
