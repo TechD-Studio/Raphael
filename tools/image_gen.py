@@ -119,16 +119,20 @@ class ImageGenTool:
         import shutil
         import subprocess
 
-        if not shutil.which("mflux-generate"):
+        mflux_bin = shutil.which("mflux-generate")
+        if not mflux_bin:
+            import sys
+            venv_bin = Path(sys.executable).parent / "mflux-generate"
+            if venv_bin.exists():
+                mflux_bin = str(venv_bin)
+        if not mflux_bin:
             return {
                 "ok": False,
                 "error": (
-                    "로컬 이미지 생성 불가.\n"
-                    "FLUX.1은 HuggingFace 인증 + 모델 접근 승인 필요:\n"
-                    "  1. huggingface.co에서 FLUX.1-schnell 접근 요청\n"
-                    "  2. huggingface-cli login\n"
-                    "  3. pip install mflux\n"
-                    "또는 설정 > 서버 > 이미지 생성에서 OpenAI 백엔드를 선택하세요 (OPENAI_API_KEY 필요)."
+                    "mflux 미설치. pip install mflux 로 설치하세요.\n"
+                    "설치 후 HuggingFace 인증도 필요합니다:\n"
+                    "  1. huggingface.co에서 FLUX.1-schnell 접근 승인\n"
+                    "  2. 설정 > 서버 > 이미지 생성에서 HUGGINGFACE_TOKEN 입력"
                 ),
             }
 
@@ -144,7 +148,7 @@ class ImageGenTool:
         seed = ts % 100000
 
         cmd = [
-            "mflux-generate",
+            mflux_bin,
             "--model", "black-forest-labs/FLUX.1-schnell",
             "--quantize", "4",
             "--prompt", prompt,
@@ -200,11 +204,18 @@ class ImageGenTool:
 
         has_mflux = False
         has_mlx_image = False
-        try:
-            import mflux  # noqa
+        if shutil.which("mflux-generate"):
             has_mflux = True
-        except ImportError:
-            pass
+        else:
+            import sys
+            if (Path(sys.executable).parent / "mflux-generate").exists():
+                has_mflux = True
+            else:
+                try:
+                    import mflux  # noqa
+                    has_mflux = True
+                except ImportError:
+                    pass
         try:
             import mlx_image  # noqa
             has_mlx_image = True
