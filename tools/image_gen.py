@@ -158,7 +158,17 @@ class ImageGenTool:
 
         def _run():
             try:
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                import os as _os
+                env = _os.environ.copy()
+                try:
+                    from core.secrets import get_secret
+                    hf = get_secret("HUGGINGFACE_TOKEN")
+                    if hf:
+                        env["HF_TOKEN"] = hf
+                        env["HUGGING_FACE_HUB_TOKEN"] = hf
+                except Exception:
+                    pass
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
                 if r.returncode != 0:
                     return {"ok": False, "error": f"mflux 실패 (rc={r.returncode}): {r.stderr[:300]}"}
                 if out_path.exists():
