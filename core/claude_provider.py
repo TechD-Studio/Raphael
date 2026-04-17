@@ -103,18 +103,30 @@ class ClaudeCodeProvider:
 
     # ── 비스트리밍 chat ────────────────────────────────────
 
+    @staticmethod
+    def _check_network(timeout: float = 3.0) -> bool:
+        """Anthropic API 접근 가능 여부 빠른 체크."""
+        import socket
+        try:
+            socket.create_connection(("api.anthropic.com", 443), timeout=timeout)
+            return True
+        except (socket.timeout, OSError):
+            return False
+
     async def chat(
         self,
         messages: list[dict],
         cli_args: list[str] | None = None,
         allowed_tools: list[str] | None = None,
         session_id: str | None = None,
-        timeout: float = 600.0,
+        timeout: float = 120.0,
     ) -> dict:
         if not self.is_available():
             raise ClaudeCLIError(
                 "claude CLI가 설치되어 있지 않습니다. 설치 후 'claude login' 또는 구독 인증을 완료하세요."
             )
+        if not self._check_network():
+            raise ClaudeCLIError("인터넷 연결 없음 — Claude API(api.anthropic.com)에 접근할 수 없습니다.")
         prompt = self._messages_to_prompt(messages)
         cmd = self._build_cmd(prompt, cli_args=cli_args, allowed_tools=allowed_tools, session_id=session_id)
         logger.debug(f"claude chat → {cmd[:4]}... (prompt {len(prompt)} chars)")
@@ -149,6 +161,8 @@ class ClaudeCodeProvider:
         """라인별 stream-json 파싱 → Ollama 호환 chunk yield."""
         if not self.is_available():
             raise ClaudeCLIError("claude CLI 미설치")
+        if not self._check_network():
+            raise ClaudeCLIError("인터넷 연결 없음 — Claude API에 접근할 수 없습니다.")
         prompt = self._messages_to_prompt(messages)
         cmd = self._build_cmd(prompt, cli_args=cli_args, allowed_tools=allowed_tools, stream=True, session_id=session_id)
 

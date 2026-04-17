@@ -132,7 +132,24 @@ class AgentBase(ABC):
             except ModelNotInstalledError as e:
                 ticker.cancel()
                 logger.warning(f"[{self.name}] {e}")
-                return str(e)
+                # Claude 실패 시 gemma4로 폴백 시도
+                try:
+                    from config.settings import get_settings, get_model_config
+                    cur = get_model_config(self.router.current_key)
+                    if cur.get("provider") == "claude_cli":
+                        ladder = get_settings().get("models", {}).get("escalation_ladder", [])
+                        fallback = next(
+                            (k for k in reversed(ladder)
+                             if get_model_config(k).get("provider") != "claude_cli"),
+                            None,
+                        )
+                        if fallback:
+                            logger.info(f"[{self.name}] Claude 실패 → {fallback}로 폴백")
+                            self.router.switch_model(fallback)
+                            continue  # ReAct 루프 재시도
+                except Exception:
+                    pass
+                return f"⚠ {e}"
             finally:
                 ticker.cancel()
                 try:
