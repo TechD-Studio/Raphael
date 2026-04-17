@@ -73,6 +73,7 @@ export default function App() {
     }[]
   >([]);
   const [dragOver, setDragOver] = useState(false);
+  const pendingQueueRef = useRef<string>("");
   const [activeModel, setActiveModel] = useState("");
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [toolLog, setToolLog] = useState<
@@ -467,7 +468,29 @@ export default function App() {
       setStreamBuf("");
       setTools([]);
       await refreshSessions();
+
+      // 대기열 메시지 자동 전송
+      if (pendingQueueRef.current) {
+        const queued = pendingQueueRef.current;
+        pendingQueueRef.current = "";
+        // 대기 표시 메시지를 실제 메시지로 교체
+        setMessages((m) => {
+          const last = m[m.length - 1];
+          if (last?.content.endsWith("_(대기 중...)_")) {
+            return [...m.slice(0, -1)];
+          }
+          return m;
+        });
+        requestAnimationFrame(() => doSend(queued));
+      }
     }
+  }
+
+  function queueMessage() {
+    if (!input.trim()) return;
+    pendingQueueRef.current = input.trim();
+    setInput("");
+    setMessages((m) => [...m, { role: "user", content: `${pendingQueueRef.current} _(대기 중...)_` }]);
   }
 
   async function sendMessage() {
@@ -1222,7 +1245,11 @@ export default function App() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                sendMessage();
+                if (streaming) {
+                  queueMessage();
+                } else {
+                  sendMessage();
+                }
               }
             }}
             disabled={!healthy}
