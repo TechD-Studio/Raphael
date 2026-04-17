@@ -566,6 +566,7 @@ function ModelsPanel() {
     models: string[];
     error?: string;
   } | null>(null);
+  const [ollamaOk, setOllamaOk] = useState(true);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [pullName, setPullName] = useState("");
@@ -577,6 +578,12 @@ function ModelsPanel() {
       try {
         setInstalled(await api.installedModels());
       } catch {}
+      try {
+        const h = await api.healthPanel();
+        setOllamaOk(h.ok);
+      } catch {
+        setOllamaOk(false);
+      }
     } catch (e: any) {
       setErr(e.message);
     }
@@ -624,19 +631,34 @@ function ModelsPanel() {
         현재 모델: <code>{info.current}</code>
       </p>
       {err && <div className="err">{err}</div>}
+      {!ollamaOk && (
+        <div className="err" style={{ marginBottom: 12 }}>
+          Ollama 서버에 연결할 수 없습니다. Ollama 모델은 사용 불가 상태입니다.
+        </div>
+      )}
       <ul className="model-list">
-        {info.available.map((k) => (
-          <li key={k}>
-            <code>{k}</code>
-            {k === info.current ? (
-              <span className="badge">활성</span>
-            ) : (
-              <button disabled={busy} onClick={() => choose(k)}>
-                사용
-              </button>
-            )}
-          </li>
-        ))}
+        {info.available.map((k) => {
+          const isClaude = k.startsWith("claude");
+          const isAvailable = isClaude || ollamaOk;
+          return (
+            <li key={k} style={{ opacity: isAvailable ? 1 : 0.4 }}>
+              <code>{k}</code>
+              {!isAvailable && (
+                <span className="badge" style={{ background: "var(--err-bg)", color: "var(--err-text)" }}>
+                  연결 실패
+                </span>
+              )}
+              {isAvailable && k === info.current && (
+                <span className="badge">활성</span>
+              )}
+              {isAvailable && k !== info.current && (
+                <button disabled={busy} onClick={() => choose(k)}>
+                  사용
+                </button>
+              )}
+            </li>
+          );
+        })}
       </ul>
       <h4 style={{ marginTop: 24, marginBottom: 8 }}>
         Ollama 서버 설치 모델
