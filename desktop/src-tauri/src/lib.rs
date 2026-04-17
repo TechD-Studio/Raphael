@@ -157,20 +157,46 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
         return Err("already running".to_string());
     }
 
-    // raphaeld 프로세스가 이미 있으면 (추출 중일 수 있음) 스킵
-    #[cfg(unix)]
-    {
-        use std::process::Command;
-        if let Ok(output) = Command::new("pgrep").args(["-f", "raphaeld.*--port"]).output() {
-            if !String::from_utf8_lossy(&output.stdout).trim().is_empty() {
-                return Err("raphaeld process exists (extracting)".to_string());
+    kill_stale_daemon();
+
+    // 방법 1 (우선): Python uvicorn 직접 실행 — PyInstaller 추출 없이 즉시 시작
+    let python_paths = [
+        // Raphael venv
+        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
+            .join("Raphael/.venv/bin/python3"),
+        // 시스템
+        std::path::PathBuf::from("/opt/homebrew/bin/python3"),
+        std::path::PathBuf::from("/usr/local/bin/python3"),
+        std::path::PathBuf::from("/usr/bin/python3"),
+    ];
+
+    for py in &python_paths {
+        if !py.exists() { continue; }
+        eprintln!("[raphael] trying Python daemon: {}", py.display());
+        match std::process::Command::new(py)
+            .args(["-m", "uvicorn", "interfaces.daemon:app",
+                   "--host", "127.0.0.1", "--port", "8765"])
+            .current_dir(
+                std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                    .join("Raphael")
+            )
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(child) => {
+                eprintln!("[raphael] Python daemon spawned (PID {})", child.id());
+                return Err("direct_spawn_ok".to_string());
+            }
+            Err(e) => {
+                eprintln!("[raphael] Python spawn failed ({}): {e}", py.display());
             }
         }
     }
 
+    // 방법 2 (fallback): PyInstaller sidecar
     cleanup_pyinstaller_temp();
     remove_quarantine();
-    kill_stale_daemon();
 
     let raphaeld_path = std::env::current_exe()
         .map_err(|e| format!("exe path: {e}"))?
@@ -178,37 +204,23 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
         .ok_or("no parent dir")?
         .join("raphaeld");
 
-    if !raphaeld_path.exists() {
-        return Err(format!("raphaeld not found: {}", raphaeld_path.display()));
+    if raphaeld_path.exists() {
+        eprintln!("[raphael] fallback: PyInstaller {}", raphaeld_path.display());
+        match std::process::Command::new(&raphaeld_path)
+            .args(["--host", "127.0.0.1", "--port", "8765"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(child) => {
+                eprintln!("[raphael] PyInstaller daemon spawned (PID {})", child.id());
+                return Err("direct_spawn_ok".to_string());
+            }
+            Err(e) => eprintln!("[raphael] PyInstaller spawn failed: {e}"),
+        }
     }
 
-    eprintln!("[raphael] launching daemon: {}", raphaeld_path.display());
-    match std::process::Command::new(&raphaeld_path)
-        .args(["--host", "127.0.0.1", "--port", "8765"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => {
-            let pid = child.id();
-            // stderr 로그를 백그라운드로 읽기
-            std::thread::spawn(move || {
-                use std::io::BufRead;
-                if let Some(stderr) = child.stderr {
-                    for line in std::io::BufReader::new(stderr).lines().take(50) {
-                        if let Ok(l) = line {
-                            eprintln!("[raphaeld] {l}");
-                        }
-                    }
-                }
-            });
-            eprintln!("[raphael] daemon spawned (PID {pid})");
-            // CommandChild를 반환할 수 없으므로 None으로 state에 저장
-            // watchdog + ensure_daemon이 lifecycle 관리
-            Err("direct_spawn_ok".to_string())
-        }
-        Err(e) => Err(format!("spawn failed: {e}")),
-    }
+    Err("all spawn methods failed".to_string())
 }
 
 fn toggle_main_window(app: &tauri::AppHandle) {
