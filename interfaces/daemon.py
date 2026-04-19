@@ -96,6 +96,7 @@ def _init_runtime() -> Orchestrator:
     router_inst = ModelRouter()
     orch_inst = Orchestrator(router=router_inst)
     registry = create_default_registry()
+    registry.register("_orchestrator", orch_inst, "내부 오케스트레이터 참조 (delegate용)")
     active = load_active_agents()
     for d in list_definitions():
         if d.name not in active and d.name != "main":
