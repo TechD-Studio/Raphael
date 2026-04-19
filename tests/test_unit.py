@@ -213,6 +213,7 @@ def test_input_guard_injection_case_variants():
 
 
 async def test_session_isolation():
+    import os, tempfile
     from core.model_router import ModelRouter
     from core.orchestrator import Orchestrator
     from core.agent_base import AgentBase
@@ -227,27 +228,32 @@ async def test_session_isolation():
             self.add_message("assistant", reply)
             return reply
 
-    router = ModelRouter()
-    orch = Orchestrator(router=router)
-    orch.register(EchoAgent(
-        name="echo", description="echo",
-        router=router, tools=[], system_prompt="",
-    ))
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["RAPHAEL_SESSIONS_DIR"] = d
+        try:
+            router = ModelRouter()
+            orch = Orchestrator(router=router)
+            orch.register(EchoAgent(
+                name="echo", description="echo",
+                router=router, tools=[], system_prompt="",
+            ))
 
-    # 세션 A와 B가 별개의 대화를 유지하는지 확인
-    r1a = await orch.route("hello A", session_id="A")
-    r1b = await orch.route("hello B", session_id="B")
-    r2a = await orch.route("again A", session_id="A")
+            # 세션 A와 B가 별개의 대화를 유지하는지 확인
+            r1a = await orch.route("hello A", session_id="A")
+            r1b = await orch.route("hello B", session_id="B")
+            r2a = await orch.route("again A", session_id="A")
 
-    # 세션 A의 두 번째 호출은 이전 대화가 있으므로 길이가 더 커야 함
-    _assert(r2a.startswith("echo-"))
-    # session_id별로 _sessions에 저장됨
-    _assert(("A", "echo") in orch._sessions)
-    _assert(("B", "echo") in orch._sessions)
-    # 초기화
-    orch.reset_session("A")
-    _assert(("A", "echo") not in orch._sessions)
-    _assert(("B", "echo") in orch._sessions)
+            # 세션 A의 두 번째 호출은 이전 대화가 있으므로 길이가 더 커야 함
+            _assert(r2a.startswith("echo-"))
+            # session_id별로 _sessions에 저장됨
+            _assert(("A", "echo") in orch._sessions)
+            _assert(("B", "echo") in orch._sessions)
+            # 초기화
+            orch.reset_session("A")
+            _assert(("A", "echo") not in orch._sessions)
+            _assert(("B", "echo") in orch._sessions)
+        finally:
+            os.environ.pop("RAPHAEL_SESSIONS_DIR", None)
 
 
 # ── 봇 메시지 분할 ────────────────────────────────────────────
@@ -380,14 +386,18 @@ async def test_tool_runner_delegate():
     reg = ToolRegistry()
     reg.register("_orchestrator", orch, "orchestrator")
 
-    # 활성 에이전트 검증 우회 — 임시 디렉토리에 target 활성화
-    with tempfile.TemporaryDirectory() as d:
+    # 활성 에이전트 검증 우회 — 임시 디렉토리에 target 활성화 + 세션 격리
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as sd:
         os.environ["RAPHAEL_AGENTS_DIR"] = d
-        from core.agent_definitions import save_active_agents
-        save_active_agents({"target", "main"})
-        call = ToolCall(name="delegate", args={"agent": "target", "task": "hello sub"}, raw="")
-        r = await execute_tool_call(call, reg)
-        os.environ.pop("RAPHAEL_AGENTS_DIR", None)
+        os.environ["RAPHAEL_SESSIONS_DIR"] = sd
+        try:
+            from core.agent_definitions import save_active_agents
+            save_active_agents({"target", "main"})
+            call = ToolCall(name="delegate", args={"agent": "target", "task": "hello sub"}, raw="")
+            r = await execute_tool_call(call, reg)
+        finally:
+            os.environ.pop("RAPHAEL_AGENTS_DIR", None)
+            os.environ.pop("RAPHAEL_SESSIONS_DIR", None)
     _assert(not r.error, f"delegate 실패: {r.output}")
     _assert("target-echo" in r.output)
     _assert("hello sub" in r.output)

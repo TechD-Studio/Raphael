@@ -32,8 +32,10 @@ class Orchestrator:
 
     @staticmethod
     def _sessions_dir():
+        import os
         from pathlib import Path
-        d = Path.home() / ".raphael" / "sessions"
+        override = os.environ.get("RAPHAEL_SESSIONS_DIR")
+        d = Path(override) if override else Path.home() / ".raphael" / "sessions"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
