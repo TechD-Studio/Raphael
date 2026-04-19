@@ -631,18 +631,19 @@ export default function App() {
         };
         reader.readAsText(f);
       } else if (f.name.endsWith(".pdf")) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (reader.result instanceof ArrayBuffer) {
-            const b64 = btoa(
-              new Uint8Array(reader.result).reduce((s, b) => s + String.fromCharCode(b), ""),
+        const placeholder = `[PDF 업로드 중: ${f.name}, ${(f.size / 1024).toFixed(0)}KB...]`;
+        setInput((prev) => (prev ? prev + "\n\n" : "") + placeholder);
+        api
+          .uploadAttachment(f)
+          .then((res) => {
+            const marker = `[PDF 첨부: ${f.name}, ${(f.size / 1024).toFixed(0)}KB]\n파일 경로: ${res.path}\n(file_reader 도구로 이 경로를 읽어 내용을 분석하세요)`;
+            setInput((prev) => prev.replace(placeholder, marker));
+          })
+          .catch((err) => {
+            setInput((prev) =>
+              prev.replace(placeholder, `[PDF 업로드 실패: ${f.name} — ${err}]`),
             );
-            setInput(
-              (prev) => (prev ? prev + "\n\n" : "") + `[PDF 첨부: ${f.name}, ${(f.size / 1024).toFixed(0)}KB — base64 인코딩됨]\ndata:application/pdf;base64,${b64.slice(0, 200)}...`,
-            );
-          }
-        };
-        reader.readAsArrayBuffer(f);
+          });
       }
     });
   }

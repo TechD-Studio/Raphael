@@ -187,8 +187,21 @@ async function jpost<T>(path: string, body: unknown): Promise<T> {
   return r.json();
 }
 
+async function jupload<T>(path: string, file: File): Promise<T> {
+  const form = new FormData();
+  form.append("file", file);
+  const r = await fetch(`${BASE}${path}`, { method: "POST", body: form });
+  if (!r.ok) {
+    const msg = await r.text().catch(() => `${r.status}`);
+    throw new Error(`${r.status} ${msg}`);
+  }
+  return r.json();
+}
+
 export const api = {
   health: () => jget<{ ok: boolean; version: string }>("/healthz"),
+  uploadAttachment: (file: File) =>
+    jupload<{ path: string; size: number; filename: string }>("/upload", file),
   sessions: () => jget<SessionMeta[]>("/sessions"),
   session: (id: string) => jget<SessionDetail>(`/sessions/${id}`),
   searchSessions: (query: string, n_results = 10) =>

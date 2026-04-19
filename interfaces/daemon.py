@@ -1277,6 +1277,41 @@ def save_image_gen_settings(req: ImageGenSettingsReq):
     return {"ok": True}
 
 
+@app.post("/upload")
+async def upload_attachment(file: UploadFile = File(...)):
+    """사용자 첨부 파일을 ~/.raphael/uploads/ 에 저장하고 절대경로를 돌려준다.
+
+    프론트엔드가 PDF/문서 같은 바이너리를 base64로 채팅에 흘려넣으면
+    컨텍스트가 폭주하므로, 파일은 디스크에 떨어뜨리고 경로만 전달한다.
+    모델은 file_reader 도구로 해당 경로를 읽어 내용을 파싱한다.
+    """
+    import time
+    import re
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "empty file")
+    # 크기 상한 — 50MB 넘으면 거부 (file_reader가 메모리로 올리는 구조)
+    if len(data) > 50 * 1024 * 1024:
+        raise HTTPException(413, "file too large (50MB limit)")
+
+    uploads_dir = Path.home() / ".raphael" / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    # 파일명 정화 — 경로 분리자/제어문자 제거, 공백은 언더스코어로
+    raw_name = Path(file.filename or "attachment").name
+    safe_name = re.sub(r"[^\w.\-]+", "_", raw_name).strip("_.") or "attachment"
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    dest = uploads_dir / f"{ts}_{safe_name}"
+    # 중복 회피
+    i = 1
+    while dest.exists():
+        dest = uploads_dir / f"{ts}_{i}_{safe_name}"
+        i += 1
+    dest.write_bytes(data)
+    logger.info(f"업로드 수신: {dest} ({len(data):,} bytes)")
+    return {"path": str(dest), "size": len(data), "filename": safe_name}
+
+
 @app.post("/stt")
 async def stt_endpoint(audio: UploadFile = File(...)):
     """업로드된 오디오를 텍스트로 변환 (whisper)."""
