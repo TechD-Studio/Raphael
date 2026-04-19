@@ -1309,3 +1309,28 @@ pre:hover .code-copy { opacity: 1; }
 }
 .select-toolbar button:disabled { opacity: 0.4; }
 .session.selected { background: var(--sidebar-active); outline: 1px solid var(--primary); }
+
+.stream-status {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+.stream-status-active { color: var(--primary); }
+.stream-status-slow { color: var(--text-muted); }
+.stream-status-stale { color: #d97706; font-weight: 500; }
+.stream-status-down { color: #dc2626; font-weight: 600; }
+.msg-assistant.streaming .role { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+.msg-assistant.streaming .role::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  margin-right: 4px;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}

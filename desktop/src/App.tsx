@@ -25,6 +25,13 @@ export default function App() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamBuf, setStreamBuf] = useState("");
+  const [streamStats, setStreamStats] = useState<{
+    startedAt: number;
+    lastActivityAt: number;
+    chars: number;
+    daemonDown: boolean;
+  } | null>(null);
+  const [tickNow, setTickNow] = useState(Date.now());
   const [models, setModels] = useState<ModelsInfo | null>(null);
   const [healthy, setHealthy] = useState<boolean>(false);
   const [ollamaStatus, setOllamaStatus] = useState<"ok" | "unreachable" | "checking">("checking");
@@ -95,6 +102,22 @@ export default function App() {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
+
+  useEffect(() => {
+    if (!streaming) return;
+    const id = setInterval(() => setTickNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [streaming]);
+
+  useEffect(() => {
+    if (!streaming || !streamStats || streamStats.daemonDown) return;
+    const idle = (tickNow - streamStats.lastActivityAt) / 1000;
+    if (idle > 60) {
+      api.health().catch(() => {
+        setStreamStats((s) => (s ? { ...s, daemonDown: true } : s));
+      });
+    }
+  }, [tickNow, streaming, streamStats]);
 
   useEffect(() => {
     // Auto-check for app updates (non-blocking)
@@ -400,6 +423,9 @@ export default function App() {
     setMessages((m) => [...m, { role: "user", content: userContent }]);
     setStreaming(true);
     setStreamBuf("");
+    const startTs = Date.now();
+    setStreamStats({ startedAt: startTs, lastActivityAt: startTs, chars: 0, daemonDown: false });
+    setTickNow(startTs);
     setTools([]);
     setPlannerSteps([]);
     setToolLog([]);
@@ -408,6 +434,10 @@ export default function App() {
     abortRef.current = ac;
     refreshSessions();
     let buf = "";
+    const touch = (chars?: number) =>
+      setStreamStats((s) =>
+        s ? { ...s, lastActivityAt: Date.now(), chars: chars ?? s.chars, daemonDown: false } : s,
+      );
     try {
       await api.sendMessage(activeSid, text, targetAgent || undefined, {
         onChunk: (t) => {
@@ -418,6 +448,7 @@ export default function App() {
             .replace(/<tool_result[^>]*>[\s\S]*?<\/tool_result>/g, "")
             .trim();
           setStreamBuf(clean);
+          touch(clean.length);
         },
         onModelCall: (d) => {
           const model = d?.model || "?";
@@ -425,6 +456,7 @@ export default function App() {
             setToolLog((l) => [...l, { type: "model", name: model, detail: `모델 전환: ${activeModel} → ${model}`, ts: Date.now() }]);
           }
           setActiveModel(model);
+          touch();
         },
         onToolCall: (d) => {
           setTools((tt) => [...tt, `🔧 ${d?.name ?? "?"}`]);
@@ -433,10 +465,12 @@ export default function App() {
           if (d?.name === "delegate") {
             setPlannerSteps((s) => [...s, { agent: d?.args?.agent || "?", task: d?.args?.task || "", status: "running" }]);
           }
+          touch();
         },
         onToolResult: (d) => {
           const out = d?.error || (d?.output || "").slice(0, 200);
           setToolLog((l) => [...l, { type: "result", name: d?.name || "?", detail: out, ts: Date.now() }]);
+          touch();
           if (d?.name === "generate_image" && !d?.error) {
             const pathMatch = (d?.output || "").match(/(\/[^\s\n]+\.(?:png|jpg|jpeg|webp))/);
             if (pathMatch) {
@@ -478,6 +512,7 @@ export default function App() {
       abortRef.current = null;
       setStreaming(false);
       setStreamBuf("");
+      setStreamStats(null);
       setTools([]);
       await refreshSessions();
 
@@ -1210,7 +1245,10 @@ export default function App() {
           {toolLog.length > 0 && streaming && <ToolLogPanel log={toolLog} />}
           {streaming && (
             <div className="msg msg-assistant streaming">
-              <div className="role">Raphael (생성 중...)</div>
+              <div className="role">
+                Raphael (생성 중...)
+                {streamStats && <StreamStatus stats={streamStats} now={tickNow} />}
+              </div>
               {tools.length > 0 && <div className="tools">{tools.join("  ")}</div>}
               <div className="content">
                 <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
@@ -1428,6 +1466,44 @@ function TokenChart({
         completion
       </div>
     </div>
+  );
+}
+
+function StreamStatus({
+  stats,
+  now,
+}: {
+  stats: { startedAt: number; lastActivityAt: number; chars: number; daemonDown: boolean };
+  now: number;
+}) {
+  const elapsed = Math.max(0, (now - stats.startedAt) / 1000);
+  const idle = Math.max(0, (now - stats.lastActivityAt) / 1000);
+  const rate = stats.chars > 0 && elapsed > 0 ? stats.chars / elapsed : 0;
+
+  let state: "active" | "slow" | "stale" | "down" = "active";
+  let label = "";
+  if (stats.daemonDown) {
+    state = "down";
+    label = " · ⚠ 데몬 응답 없음";
+  } else if (idle > 60) {
+    state = "down";
+    label = " · ⚠ 백엔드 확인 권장";
+  } else if (idle > 20) {
+    state = "stale";
+    label = " · ⚠ 응답 지연";
+  } else if (idle > 5) {
+    state = "slow";
+  }
+
+  return (
+    <span className={`stream-status stream-status-${state}`}>
+      {" · 경과 "}
+      {elapsed < 60 ? `${elapsed.toFixed(0)}s` : `${Math.floor(elapsed / 60)}m ${Math.floor(elapsed % 60)}s`}
+      {" · 마지막 활동 "}
+      {idle.toFixed(0)}s 전
+      {stats.chars > 0 && ` · ${stats.chars.toLocaleString()}자 · ${rate.toFixed(1)}자/s`}
+      {label}
+    </span>
   );
 }
 
