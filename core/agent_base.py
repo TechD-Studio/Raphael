@@ -85,6 +85,8 @@ class AgentBase(ABC):
         # 에스컬레이션은 세션 sticky — 이미 승격됐으면 플래그 유지 (재하향 방지)
         if not getattr(self, "_escalated_sticky", False):
             self._escalated = False
+        # 이번 턴에 실제로 도구가 몇 번 실행됐는지 — _self_reflect의 false-positive 방지용
+        self._tools_used_this_turn = 0
         await self._maybe_compact()
 
         failure_hint = self._load_failure_patterns()
@@ -252,6 +254,7 @@ class AgentBase(ABC):
 
             # 도구 실행 — 위험 도구는 승인 콜백 체크
             logger.info(f"[{self.name}] 도구 {len(calls)}개 실행 (반복 {iteration + 1})")
+            self._tools_used_this_turn += len(calls)
             results = []
             for c in calls:
                 # on_tool_call 훅
@@ -384,6 +387,10 @@ class AgentBase(ABC):
             return response
         if len(user_input.strip()) < 30 and len(response.strip()) < 200:
             return response
+        # 이번 턴에 도구가 실제로 실행됐다면 — 리플렉터는 텍스트만 보므로 "도구 썼어야 했는데
+        # 안 썼네" 식의 false-positive를 거의 확실히 낸다. 일감은 이미 끝난 상태.
+        if getattr(self, "_tools_used_this_turn", 0) > 0:
+            return response
         try:
             from config.settings import get_model_config
             if get_model_config(self.router.current_key).get("provider") == "claude_cli":
@@ -418,6 +425,8 @@ class AgentBase(ABC):
                 )
                 self.add_message("user", supplement_prompt)
                 supplement = await self._call_model(supplement_prompt)
+                # supplement 도 대화에 assistant 로 남겨야 다음 턴에 orphan user 로 재처리되지 않는다.
+                self.add_message("assistant", supplement)
                 return f"{response}\n\n---\n\n💡 **보완**\n{supplement}"
         except Exception as e:
             logger.debug(f"자체 검토 실패 (무시): {e}")
