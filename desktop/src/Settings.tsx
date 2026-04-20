@@ -1605,6 +1605,95 @@ function RagPanel() {
           전체 재인덱싱
         </button>
       </div>
+      <hr style={{ margin: "20px 0", border: "none", borderTop: "1px solid var(--border)" }} />
+      <ObsidianAutoSavePanel />
+    </div>
+  );
+}
+
+function ObsidianAutoSavePanel() {
+  const [enabled, setEnabled] = useState(false);
+  const [prefix, setPrefix] = useState("Raphael");
+  const [scopeText, setScopeText] = useState("main");
+  const [vault, setVault] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+
+  const refresh = async () => {
+    try {
+      const c = await api.obsidianAutoSaveGet();
+      setEnabled(c.enabled);
+      setPrefix(c.prefix);
+      setScopeText((c.scope || ["main"]).join(", "));
+      setVault(c.vault_path);
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  async function save() {
+    setBusy(true); setErr(""); setMsg("");
+    try {
+      const scope = scopeText.split(",").map((s) => s.trim()).filter(Boolean);
+      await api.obsidianAutoSaveSet({ enabled, prefix: prefix.trim(), scope });
+      setMsg("저장됨. 다음 턴부터 적용됩니다.");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const vaultSet = !!vault && vault !== "/path/to/vault";
+
+  return (
+    <div>
+      <h4 style={{ marginTop: 0 }}>세션 자동 저장 (옵시디언)</h4>
+      <p className="muted" style={{ marginBottom: 10 }}>
+        매 턴마다 대화를 볼트에 마크다운으로 덮어쓰기 저장합니다.
+        저장 경로: <code>{vault || "(볼트 경로 미설정)"}/{prefix || "Raphael"}/YYYY-MM/YYYYMMDD-HHMM_제목.md</code>
+      </p>
+      {!vaultSet && (
+        <div className="err" style={{ marginBottom: 10 }}>
+          ⚠ 위 "볼트 경로"를 먼저 설정·저장해야 자동 저장이 동작합니다.
+        </div>
+      )}
+      <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => setEnabled(e.target.checked)}
+        />
+        <span>자동 저장 활성화</span>
+      </label>
+      <label style={{ display: "block", marginBottom: 10 }}>
+        폴더 prefix (볼트 하위)
+        <input
+          value={prefix}
+          onChange={(e) => setPrefix(e.target.value)}
+          placeholder="Raphael"
+          style={{ width: "100%", padding: "6px 10px", marginTop: 4 }}
+        />
+      </label>
+      <label style={{ display: "block", marginBottom: 10 }}>
+        대상 에이전트 (쉼표 구분, 기본: main)
+        <input
+          value={scopeText}
+          onChange={(e) => setScopeText(e.target.value)}
+          placeholder="main"
+          style={{ width: "100%", padding: "6px 10px", marginTop: 4 }}
+        />
+      </label>
+      <div className="row">
+        <button className="primary" onClick={save} disabled={busy}>
+          {busy ? "저장 중..." : "저장"}
+        </button>
+      </div>
+      {msg && <div className="ok-msg" style={{ marginTop: 8 }}>{msg}</div>}
+      {err && <div className="err" style={{ marginTop: 8 }}>{err}</div>}
     </div>
   );
 }

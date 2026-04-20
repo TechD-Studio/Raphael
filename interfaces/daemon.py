@@ -791,6 +791,40 @@ def set_rag_vault(req: RagVaultReq):
     return {"ok": True, "vault_path": req.vault_path}
 
 
+@app.get("/settings/obsidian-autosave")
+def get_obsidian_autosave():
+    from config.settings import get_settings
+
+    mem = (get_settings().get("memory") or {})
+    cfg = mem.get("obsidian_auto_save") or {}
+    return {
+        "enabled": bool(cfg.get("enabled", False)),
+        "prefix": cfg.get("prefix") or "Raphael",
+        "scope": cfg.get("scope") or ["main"],
+        "vault_path": mem.get("obsidian_vault") or "",
+    }
+
+
+class ObsidianAutosaveReq(BaseModel):
+    enabled: bool
+    prefix: str | None = None
+    scope: list[str] | None = None
+
+
+@app.post("/settings/obsidian-autosave")
+def set_obsidian_autosave(req: ObsidianAutosaveReq):
+    from config.settings import save_local_settings, reload_settings
+
+    patch: dict = {"enabled": bool(req.enabled)}
+    if req.prefix is not None:
+        patch["prefix"] = req.prefix.strip() or "Raphael"
+    if req.scope is not None:
+        patch["scope"] = [s.strip() for s in req.scope if s.strip()] or ["main"]
+    save_local_settings({"memory": {"obsidian_auto_save": patch}})
+    reload_settings()
+    return {"ok": True, **patch}
+
+
 @app.post("/rag/sync")
 async def rag_sync():
     try:

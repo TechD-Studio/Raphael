@@ -105,6 +105,13 @@ memory:
   obsidian_vault: "/path/to/vault"
   chroma_db_path: "./data/chroma"
   embedding_model: "nomic-embed-text"
+  # 세션 대화를 옵시디언 볼트에 자동 저장 (opt-in).
+  # enabled=true 이고 obsidian_vault 가 설정돼 있으면, 매 턴 덮어쓰기로
+  # {vault}/{prefix}/YYYY-MM/YYYYMMDD-HHMM_<제목>.md 에 기록된다.
+  obsidian_auto_save:
+    enabled: false
+    prefix: "Raphael"
+    scope: ["main"]  # 지정 에이전트만 저장. delegate 서브에이전트는 제외.
 
 tools:
   web_search:

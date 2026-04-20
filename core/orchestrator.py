@@ -369,6 +369,13 @@ class Orchestrator:
                 self._sessions[(session_id, agent.name)] = copy.deepcopy(agent._conversation)
                 # 매 턴 디스크에 영속화 — 세션 종료/크래시 이후에도 복원 가능
                 self._persist_session(session_id, agent.name, agent._conversation)
+                # 옵시디언 자동 저장 (opt-in) — 활성화·범위 체크 후 덮어쓰기
+                try:
+                    from memory.obsidian_writer import is_enabled, is_scope_allowed, save_session
+                    if is_enabled() and is_scope_allowed(agent.name):
+                        save_session(session_id, agent.name, agent._conversation)
+                except Exception as e:
+                    logger.debug(f"옵시디언 자동 저장 훅 스킵: {e}")
             agent.activity = None
             # auto-route로 모델 임시 전환했다면 원복
             # 단, handle() 중 에스컬레이션 또는 사용자 명시 선택 시 원복 안 함

@@ -285,6 +285,15 @@ export const api = {
     jpost<{ ok: boolean; result: string }>("/mcp/call", { server, tool, args }),
   mcpAdd: (body: { name: string; command: string; args?: string[]; env?: Record<string, string> }) =>
     jpost<{ ok: boolean; count: number; note: string }>("/settings/mcp/add", body),
+  obsidianAutoSaveGet: () =>
+    jget<{ enabled: boolean; prefix: string; scope: string[]; vault_path: string }>(
+      "/settings/obsidian-autosave",
+    ),
+  obsidianAutoSaveSet: (body: { enabled: boolean; prefix?: string; scope?: string[] }) =>
+    jpost<{ ok: boolean; enabled: boolean; prefix: string; scope: string[] }>(
+      "/settings/obsidian-autosave",
+      body,
+    ),
   mcpRemove: async (name: string) => {
     const r = await fetch(`${BASE}/settings/mcp/${encodeURIComponent(name)}`, { method: "DELETE" });
     if (!r.ok) throw new Error(`${r.status}`);
