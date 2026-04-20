@@ -17,6 +17,21 @@ class PathNotAllowedError(PermissionError):
     """허용되지 않은 경로 접근."""
 
 
+def _managed_paths() -> list[Path]:
+    """데몬이 직접 관리하는 디렉토리 — 사용자 설정과 무관하게 항상 허용.
+
+    채팅창에서 업로드한 파일(~/.raphael/uploads/)이나 데몬이 생성한
+    세션/감사/체크포인트 파일을 모델이 읽을 수 있어야 한다.
+    """
+    paths = []
+    for sub in ("uploads", "sessions", "checkpoints"):
+        try:
+            paths.append((Path.home() / ".raphael" / sub).resolve())
+        except Exception:
+            pass
+    return paths
+
+
 def get_allowed_paths() -> list[Path]:
     """설정의 tools.file.allowed_paths를 Path 리스트로 반환한다 (~ 확장)."""
     settings = get_settings()
@@ -63,6 +78,11 @@ def check_path(path: str) -> Path:
     allowed = get_allowed_paths()
     if not allowed:
         allowed = _default_allowed()
+    # 데몬 관리 경로(~/.raphael/uploads 등)는 사용자 설정과 무관하게 항상 허용.
+    # 업로드 엔드포인트가 만든 파일을 file_reader가 읽을 수 있어야 한다.
+    for mp in _managed_paths():
+        if mp not in allowed:
+            allowed.append(mp)
 
     for base in allowed:
         try:
