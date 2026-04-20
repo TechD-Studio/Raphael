@@ -148,16 +148,58 @@ fn remove_quarantine() {
 /// 오래된(stale) 버전이면 해당 PID 를 반환해 호출측이 kill 하도록 한다.
 /// 최신(또는 판별 불가)이면 None 반환.
 fn detect_stale_daemon(project_dir: &std::path::Path) -> Option<u32> {
-    let daemon_src = project_dir.join("interfaces/daemon.py");
-    let expected_mtime = match std::fs::metadata(&daemon_src)
-        .and_then(|m| m.modified())
-    {
-        Ok(t) => match t.duration_since(std::time::UNIX_EPOCH) {
-            Ok(d) => d.as_secs() as i64,
-            Err(_) => return None,
-        },
-        Err(_) => return None,
-    };
+    // 데몬이 import 하는 주요 디렉토리 전체를 훑어 최신 mtime 을 계산한다.
+    // (daemon.py 하나만 보면 core/tool_runner.py 같은 의존 모듈 변경을 놓친다)
+    fn latest_mtime(root: &std::path::Path) -> i64 {
+        let mut latest: i64 = 0;
+        let mut stack: Vec<std::path::PathBuf> = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            let entries = match std::fs::read_dir(&dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name == "__pycache__" || name.starts_with('.') {
+                    continue;
+                }
+                if let Ok(ft) = entry.file_type() {
+                    if ft.is_dir() {
+                        stack.push(path);
+                    } else if ft.is_file()
+                        && path.extension().and_then(|e| e.to_str()) == Some("py")
+                    {
+                        if let Ok(md) = entry.metadata() {
+                            if let Ok(t) = md.modified() {
+                                if let Ok(d) = t.duration_since(std::time::UNIX_EPOCH) {
+                                    let secs = d.as_secs() as i64;
+                                    if secs > latest {
+                                        latest = secs;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        latest
+    }
+
+    let mut expected_mtime: i64 = 0;
+    for sub in ["interfaces", "core", "tools", "config"] {
+        let d = project_dir.join(sub);
+        if d.is_dir() {
+            let m = latest_mtime(&d);
+            if m > expected_mtime {
+                expected_mtime = m;
+            }
+        }
+    }
+    if expected_mtime == 0 {
+        return None;
+    }
 
     // 간단한 HTTP/1.1 GET — 외부 크레이트 없이 처리.
     use std::io::{Read, Write};

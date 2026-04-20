@@ -70,10 +70,37 @@ async def _lifespan(_: FastAPI):
 
 app = FastAPI(title="raphaeld", version="0.1.0", lifespan=_lifespan)
 
-# 데몬 코드가 stale인지 앱이 판별할 수 있도록 startup 시점의 daemon.py 파일 mtime 을 기록한다.
-# 앱은 /healthz 로 이 값을 받아 디스크의 현재 mtime 과 비교해서 오래됐으면 kill + 재spawn.
+# 데몬 코드가 stale인지 앱이 판별할 수 있도록 startup 시점의 소스 트리 최신 mtime 을 기록한다.
+# daemon.py 외에도 core/, tools/, config/, interfaces/ 하위 .py 파일 중 최댓값을 사용한다.
+# daemon.py는 그대로인데 의존 모듈이 바뀐 경우(예: tool_runner.py 파서 fix)도 감지하기 위함.
 _DAEMON_SOURCE = Path(__file__).resolve()
-_DAEMON_SOURCE_MTIME = int(_DAEMON_SOURCE.stat().st_mtime)
+
+
+def _compute_source_mtime() -> int:
+    import os as _os
+    project_root = _DAEMON_SOURCE.parent.parent
+    latest = int(_DAEMON_SOURCE.stat().st_mtime)
+    for sub in ("core", "tools", "config", "interfaces"):
+        d = project_root / sub
+        if not d.is_dir():
+            continue
+        for dirpath, _, filenames in _os.walk(d):
+            # __pycache__ 등은 스킵
+            if "__pycache__" in dirpath:
+                continue
+            for fn in filenames:
+                if not fn.endswith(".py"):
+                    continue
+                try:
+                    mt = int((Path(dirpath) / fn).stat().st_mtime)
+                    if mt > latest:
+                        latest = mt
+                except Exception:
+                    pass
+    return latest
+
+
+_DAEMON_SOURCE_MTIME = _compute_source_mtime()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
