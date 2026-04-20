@@ -552,6 +552,12 @@ body {
   background: #dc2626;
   color: #fff;
 }
+/* 채워진 액션 버튼은 hover 시 흰 글씨 유지 (배경과 같은 색이 되면 글씨가 사라짐) */
+.approval-actions .approval-approve:hover {
+  color: #fff;
+  border-color: transparent;
+  filter: brightness(1.1);
+}
 .pending-images {
   display: flex;
   gap: 8px;
