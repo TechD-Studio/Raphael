@@ -256,6 +256,38 @@ class Orchestrator:
         except Exception as e:
             logger.debug(f"profile 주입 실패: {e}")
 
+        # MCP 도구 카탈로그 주입 — 연결된 외부 서버(notion, github 등)의 도구 목록을
+        # 모델에게 알려 <tool name="mcp_call"> 호출로 활용 가능하게 한다.
+        try:
+            mcp_tools = [
+                (key, desc) for key, desc in agent.tool_registry._descriptions.items()
+                if key.startswith("mcp:")
+            ] if agent.tool_registry else []
+            if mcp_tools:
+                by_server: dict[str, list[tuple[str, str]]] = {}
+                for key, desc in mcp_tools:
+                    # key 포맷: mcp:<server>:<tool>
+                    parts = key.split(":", 2)
+                    if len(parts) == 3:
+                        _, server, tool = parts
+                        by_server.setdefault(server, []).append((tool, desc))
+                lines = ["## 연결된 MCP 서버 (외부 도구)"]
+                lines.append("필요 시 <tool name=\"mcp_call\"><arg name=\"server\">...</arg><arg name=\"tool\">...</arg>...</tool> 형식으로 호출.")
+                for server, tools in sorted(by_server.items()):
+                    lines.append(f"\n### {server}")
+                    for tool_name, tool_desc in tools[:40]:  # 서버당 최대 40개만 노출 (프롬프트 비대화 방지)
+                        short_desc = tool_desc.replace("\n", " ")[:120]
+                        lines.append(f"- `{tool_name}` — {short_desc}")
+                catalog = "\n".join(lines)
+                agent._conversation = [
+                    m for m in agent._conversation
+                    if not (m.get("role") == "system" and m.get("content", "").startswith("## 연결된 MCP 서버"))
+                ]
+                insert_at = 1 if agent._conversation and agent._conversation[0]["role"] == "system" else 0
+                agent._conversation.insert(insert_at, {"role": "system", "content": catalog})
+        except Exception as e:
+            logger.debug(f"MCP 카탈로그 주입 실패: {e}")
+
         # main 에이전트에 활성 전문가 카탈로그 자동 주입
         try:
             if agent.name == "main":

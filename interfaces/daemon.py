@@ -41,6 +41,7 @@ from core.agent_definitions import (
     GenericAgent,
 )
 from tools.tool_registry import create_default_registry
+from core.mcp_client import MCPClientManager
 
 
 def _cleanup_empty_sessions():
@@ -63,9 +64,30 @@ def _cleanup_empty_sessions():
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
-    _init_runtime()
+    orch = _init_runtime()
     _cleanup_empty_sessions()
+    # MCP 서버 연결 — settings.yaml의 mcp.servers 로 정의된 서버를 모두 띄우고
+    # 에이전트 공용 ToolRegistry에 도구를 등록한다. 실패해도 데몬 자체는 살아있어야 함.
+    global mcp_manager
+    mcp_manager = MCPClientManager()
+    if orch and orch._agents:
+        # 어느 에이전트의 registry든 동일 객체 (generic agent 공유) — 첫 번째 사용
+        first_agent = next(iter(orch._agents.values()))
+        shared_registry = first_agent.tool_registry
+        if shared_registry is not None:
+            try:
+                await mcp_manager.start(shared_registry)
+            except Exception as e:
+                logger.error(f"MCP 서버 기동 실패 (계속 진행): {e}")
     yield
+    try:
+        await mcp_manager.stop()
+    except Exception:
+        pass
+
+
+# 전역 MCP 매니저 — 시스템 프롬프트 주입 시 연결된 서버 목록을 조회하기 위함
+mcp_manager: MCPClientManager | None = None
 
 
 app = FastAPI(title="raphaeld", version="0.1.0", lifespan=_lifespan)
@@ -1429,6 +1451,43 @@ class MCPCallReq(BaseModel):
     args: dict = {}
 
 
+class MCPServerUpsertReq(BaseModel):
+    name: str
+    command: str
+    args: list[str] = []
+    env: dict[str, str] | None = None
+
+
+@app.post("/settings/mcp/add")
+def add_mcp_server(req: MCPServerUpsertReq):
+    """settings.local.yaml 의 mcp.servers 에 엔트리 추가/갱신.
+
+    이미 같은 name 이 있으면 덮어쓴다. 반영은 데몬 재시작 시점 (앱 재시작).
+    """
+    from config.settings import get_settings, save_local_settings, reload_settings
+
+    current = (get_settings().get("mcp") or {}).get("servers") or []
+    new_list = [s for s in current if s.get("name") != req.name]
+    entry: dict = {"name": req.name, "command": req.command, "args": list(req.args)}
+    if req.env:
+        entry["env"] = dict(req.env)
+    new_list.append(entry)
+    save_local_settings({"mcp": {"servers": new_list}})
+    reload_settings()
+    return {"ok": True, "count": len(new_list), "note": "데몬 재시작 시점에 실제 연결됩니다."}
+
+
+@app.delete("/settings/mcp/{name}")
+def remove_mcp_server(name: str):
+    from config.settings import get_settings, save_local_settings, reload_settings
+
+    current = (get_settings().get("mcp") or {}).get("servers") or []
+    new_list = [s for s in current if s.get("name") != name]
+    save_local_settings({"mcp": {"servers": new_list}})
+    reload_settings()
+    return {"ok": True, "count": len(new_list)}
+
+
 _bot_processes: dict[str, object] = {}
 BOT_COMMANDS = {"telegram", "discord", "slack"}
 
@@ -1777,7 +1836,11 @@ def list_secrets():
     known: list[dict] = []
 
     # Well-known keys
-    for k in ["OPENAI_API_KEY", "HUGGINGFACE_TOKEN", "BRAVE_API_KEY", "TAVILY_API_KEY", "SERPER_API_KEY"]:
+    for k in [
+        "OPENAI_API_KEY", "HUGGINGFACE_TOKEN", "BRAVE_API_KEY",
+        "TAVILY_API_KEY", "SERPER_API_KEY",
+        "NOTION_API_KEY", "GITHUB_PERSONAL_ACCESS_TOKEN",
+    ]:
         known_keys.add(k)
 
     # .env files

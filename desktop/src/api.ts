@@ -283,6 +283,13 @@ export const api = {
     }>("/mcp/servers"),
   mcpCall: (server: string, tool: string, args: Record<string, unknown>) =>
     jpost<{ ok: boolean; result: string }>("/mcp/call", { server, tool, args }),
+  mcpAdd: (body: { name: string; command: string; args?: string[]; env?: Record<string, string> }) =>
+    jpost<{ ok: boolean; count: number; note: string }>("/settings/mcp/add", body),
+  mcpRemove: async (name: string) => {
+    const r = await fetch(`${BASE}/settings/mcp/${encodeURIComponent(name)}`, { method: "DELETE" });
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.json() as Promise<{ ok: boolean; count: number }>;
+  },
 
   bots: () =>
     jget<{ name: string; running: boolean; pid: number | null; exit_code: number | null }[]>(

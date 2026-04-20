@@ -196,5 +196,12 @@ hooks:
 #       args: ["-y", "@modelcontextprotocol/server-github"]
 #       env:
 #         GITHUB_PERSONAL_ACCESS_TOKEN: "${GH_TOKEN}"
+#     - name: "notion"
+#       command: "npx"
+#       args: ["-y", "@notionhq/notion-mcp-server"]
+#       env:
+#         # https://www.notion.so/profile/integrations 에서 integration 생성 → Internal Integration Token 발급.
+#         # 연결할 페이지/DB 우측 상단 ⋯ → Connections → 해당 integration 추가 필수.
+#         OPENAPI_MCP_HEADERS: '{"Authorization":"Bearer ${NOTION_API_KEY}","Notion-Version":"2022-06-28"}'
 mcp:
   servers: []

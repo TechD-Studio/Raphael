@@ -98,6 +98,8 @@ export default function Settings({ onBack, onOllamaChange }: { onBack: () => voi
             <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
             <PoolPanel />
             <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
+            <MCPPanel />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
             <SecurityPanel />
             <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid var(--border)" }} />
             <ImageGenPanel />
@@ -2391,6 +2393,154 @@ function ImageGenPanel() {
           {saving ? "저장 중..." : "저장"}
         </button>
       </div>
+    </div>
+  );
+}
+
+
+function MCPPanel() {
+  const [servers, setServers] = useState<any[]>([]);
+  const [runtimeTools, setRuntimeTools] = useState<{ server: string; tool: string; description: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [notionToken, setNotionToken] = useState("");
+  const [showNotion, setShowNotion] = useState(false);
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const r = await api.mcpServers();
+      setServers(r.configured || []);
+      setRuntimeTools(r.runtime_tools || []);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  async function addNotion() {
+    setErr(""); setMsg("");
+    const token = notionToken.trim();
+    if (!token) { setErr("Notion Integration 토큰을 입력하세요."); return; }
+    try {
+      await api.setSecret("NOTION_API_KEY", token);
+      await api.mcpAdd({
+        name: "notion",
+        command: "npx",
+        args: ["-y", "@notionhq/notion-mcp-server"],
+        env: { OPENAPI_MCP_HEADERS: '{"Authorization":"Bearer ${NOTION_API_KEY}","Notion-Version":"2022-06-28"}' },
+      });
+      setMsg("Notion MCP 서버 등록 완료. 앱을 재시작하면 실제 연결됩니다.");
+      setNotionToken(""); setShowNotion(false);
+      refresh();
+    } catch (e: any) { setErr(`등록 실패: ${e.message}`); }
+  }
+
+  async function removeServer(name: string) {
+    if (!(await confirmDialog(`MCP 서버 '${name}'을(를) 제거할까요? 앱 재시작 후 연결이 끊깁니다.`))) return;
+    try {
+      await api.mcpRemove(name);
+      setMsg(`${name} 제거됨. 앱 재시작 시 반영.`);
+      refresh();
+    } catch (e: any) { setErr(`제거 실패: ${e.message}`); }
+  }
+
+  const runtimeByServer: Record<string, number> = {};
+  runtimeTools.forEach((t) => { runtimeByServer[t.server] = (runtimeByServer[t.server] || 0) + 1; });
+
+  return (
+    <div className="panel">
+      <h3>MCP 외부 서버</h3>
+      <p className="panel-note">
+        Notion · GitHub · Filesystem 등 외부 도구를 모델이 <code>mcp_call</code> 로 쓸 수 있게 합니다.
+        설정 변경 후 <b>앱 재시작</b>이 필요합니다.
+      </p>
+
+      {loading ? (
+        <div>로딩 중...</div>
+      ) : servers.length === 0 ? (
+        <div style={{ color: "var(--text-muted)", padding: "8px 0" }}>등록된 서버 없음</div>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ textAlign: "left", color: "var(--text-muted)", fontSize: 12 }}>
+              <th style={{ padding: "6px 4px" }}>이름</th>
+              <th style={{ padding: "6px 4px" }}>명령</th>
+              <th style={{ padding: "6px 4px" }}>런타임 도구 수</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {servers.map((s, i) => (
+              <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
+                <td style={{ padding: "6px 4px", fontWeight: 500 }}>{s.name}</td>
+                <td style={{ padding: "6px 4px", fontFamily: "monospace", fontSize: 12 }}>
+                  {s.command} {(s.args || []).join(" ")}
+                </td>
+                <td style={{ padding: "6px 4px" }}>
+                  {runtimeByServer[s.name] !== undefined
+                    ? `${runtimeByServer[s.name]}개 연결됨`
+                    : "⏸ 미연결 (재시작 필요)"}
+                </td>
+                <td style={{ padding: "6px 4px", textAlign: "right" }}>
+                  <button onClick={() => removeServer(s.name)}>제거</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div style={{ marginTop: 16 }}>
+        {!showNotion ? (
+          <button className="primary" onClick={() => setShowNotion(true)}>
+            Notion 추가
+          </button>
+        ) : (
+          <div style={{ background: "var(--panel-bg)", padding: 12, borderRadius: 6, border: "1px solid var(--border)" }}>
+            <div style={{ fontWeight: 500, marginBottom: 8 }}>Notion Integration 토큰</div>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 10px" }}>
+              1. <a href="https://www.notion.so/profile/integrations" target="_blank" rel="noreferrer">Notion Integration 페이지</a>에서 Internal Integration 생성 → Token 복사<br />
+              2. 연결할 Notion 페이지/DB 우측 상단 ⋯ → <b>Connections</b> → 방금 만든 integration 추가 (필수)<br />
+              3. 아래에 토큰 붙여넣기
+            </p>
+            <input
+              type="password"
+              value={notionToken}
+              onChange={(e) => setNotionToken(e.target.value)}
+              placeholder="secret_xxxxxxxxxx"
+              style={{ width: "100%", padding: "8px 10px", marginBottom: 10 }}
+              autoFocus
+            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="primary" onClick={addNotion}>저장</button>
+              <button onClick={() => { setShowNotion(false); setNotionToken(""); }}>취소</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {msg && <div style={{ marginTop: 10, color: "var(--primary)" }}>{msg}</div>}
+      {err && <div style={{ marginTop: 10, color: "#dc2626" }}>{err}</div>}
+
+      {runtimeTools.length > 0 && (
+        <details style={{ marginTop: 16 }}>
+          <summary style={{ cursor: "pointer", fontSize: 13 }}>
+            현재 연결된 MCP 도구 ({runtimeTools.length}개)
+          </summary>
+          <div style={{ fontFamily: "monospace", fontSize: 11, marginTop: 8, maxHeight: 240, overflow: "auto", background: "var(--code-bg)", padding: 8, borderRadius: 4 }}>
+            {runtimeTools.map((t, i) => (
+              <div key={i}>
+                <b>{t.server}</b>.{t.tool} — {t.description.slice(0, 80)}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
