@@ -15,17 +15,13 @@ fn daemon_url() -> String {
 
 #[tauri::command]
 fn ensure_daemon(app: tauri::AppHandle, _state: State<'_, DaemonState>) -> Result<String, String> {
-    let alive = std::net::TcpStream::connect_timeout(
-        &"127.0.0.1:8765".parse().unwrap(),
-        std::time::Duration::from_secs(2),
-    ).is_ok();
-    if alive {
-        return Ok("already running".to_string());
-    }
-    eprintln!("[raphael] ensure_daemon: not running, spawning...");
+    // spawn_daemon 내부에서 stale 여부까지 판별하므로 여기서는 항상 한 번 시도.
+    // 이미 실행 중이고 최신이면 "already running" 으로 즉시 복귀.
+    eprintln!("[raphael] ensure_daemon: checking daemon...");
     match spawn_daemon(&app) {
         Ok(_) => Ok("started".to_string()),
         Err(e) if e == "direct_spawn_ok" => Ok("started".to_string()),
+        Err(e) if e == "already running" => Ok("already running".to_string()),
         Err(e) => Err(e),
     }
 }
@@ -148,20 +144,101 @@ fn remove_quarantine() {
     }
 }
 
+/// 실행 중인 데몬이 현재 소스 코드와 같은 버전인지 확인.
+/// 오래된(stale) 버전이면 해당 PID 를 반환해 호출측이 kill 하도록 한다.
+/// 최신(또는 판별 불가)이면 None 반환.
+fn detect_stale_daemon(project_dir: &std::path::Path) -> Option<u32> {
+    let daemon_src = project_dir.join("interfaces/daemon.py");
+    let expected_mtime = match std::fs::metadata(&daemon_src)
+        .and_then(|m| m.modified())
+    {
+        Ok(t) => match t.duration_since(std::time::UNIX_EPOCH) {
+            Ok(d) => d.as_secs() as i64,
+            Err(_) => return None,
+        },
+        Err(_) => return None,
+    };
+
+    // 간단한 HTTP/1.1 GET — 외부 크레이트 없이 처리.
+    use std::io::{Read, Write};
+    let mut stream = match std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:8765".parse().unwrap(),
+        std::time::Duration::from_secs(1),
+    ) {
+        Ok(s) => s,
+        Err(_) => return None,
+    };
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+    let req = b"GET /healthz HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    if stream.write_all(req).is_err() {
+        return None;
+    }
+    let mut buf = Vec::with_capacity(512);
+    let _ = stream.read_to_end(&mut buf);
+    let text = String::from_utf8_lossy(&buf);
+    let body = match text.split_once("\r\n\r\n") {
+        Some((_, b)) => b.trim_start(),
+        None => return None,
+    };
+    // chunked encoding이면 첫 chunk 사이즈 라인 스킵 (FastAPI 기본은 Content-Length 라 보통 아님)
+    let json_body = if let Some(first_line_end) = body.find('\n') {
+        let first = &body[..first_line_end].trim();
+        if first.chars().all(|c| c.is_ascii_hexdigit()) && !first.is_empty() {
+            &body[first_line_end + 1..]
+        } else {
+            body
+        }
+    } else {
+        body
+    };
+
+    let v: serde_json::Value = match serde_json::from_str(json_body) {
+        Ok(x) => x,
+        Err(_) => return None,
+    };
+    let running_mtime = v.get("source_mtime").and_then(|x| x.as_i64()).unwrap_or(0);
+    let pid = v.get("pid").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+
+    // 1초 허용 — 동일 코드라도 os mtime 해상도 차이 흡수
+    if running_mtime + 1 < expected_mtime {
+        eprintln!(
+            "[raphael] stale daemon detected: running mtime={} expected={} (PID {})",
+            running_mtime, expected_mtime, pid
+        );
+        if pid > 0 {
+            return Some(pid);
+        }
+    }
+    None
+}
+
 fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
-    // 이미 실행 중이면 스킵
+    // Raphael 프로젝트 디렉토리 (dev 환경에서만 존재)
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/Users"))
+        .to_string_lossy().to_string();
+    let project_dir = format!("{home}/Raphael");
+    let project_path = std::path::Path::new(&project_dir);
+
+    // 이미 실행 중이면 — 단, stale 코드면 kill 하고 재spawn.
     if std::net::TcpStream::connect_timeout(
         &"127.0.0.1:8765".parse().unwrap(),
         std::time::Duration::from_secs(1),
     ).is_ok() {
-        return Err("already running".to_string());
+        if let Some(stale_pid) = detect_stale_daemon(project_path) {
+            use std::process::Command;
+            eprintln!("[raphael] killing stale daemon PID {}", stale_pid);
+            let _ = Command::new("kill").arg(stale_pid.to_string()).output();
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            // 같은 포트 점유가 남아있을 수 있어 한 번 더 포트 청소
+            kill_stale_daemon();
+        } else {
+            return Err("already running".to_string());
+        }
+    } else {
+        kill_stale_daemon();
     }
 
-    kill_stale_daemon();
-
     // 방법 1 (우선): Python uvicorn 직접 실행 — PyInstaller 추출 없이 즉시 시작
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/Users"))
-        .to_string_lossy().to_string();
     eprintln!("[raphael] HOME={home}");
 
     let python_paths = [
@@ -172,9 +249,6 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
         "/usr/local/bin/python3".to_string(),
         "/usr/bin/python3".to_string(),
     ];
-
-    let project_dir = format!("{home}/Raphael");
-    let project_path = std::path::Path::new(&project_dir);
 
     for py_str in &python_paths {
         let py = std::path::Path::new(py_str);
