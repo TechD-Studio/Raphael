@@ -406,6 +406,29 @@ async def test_tool_runner_delegate():
 # ── git tool 기본 동작 ─────────────────────────────────────
 
 
+def test_parse_tool_missing_arg_closer():
+    """gemma4가 종종 </arg>를 빼먹고 바로 </tool>로 닫는 케이스 — content가 복원되어야.
+
+    실제 세션 로그에서 재현: PDF 요약 md 저장 요청 시 모델이
+    <arg name="content">...본문...</tool> 로 종결하여 content 미매치 →
+    ESCALATE_EMPTY_CONTENT 무한 루프를 유발했던 케이스.
+    """
+    from core.tool_runner import parse_tool_calls
+
+    text = (
+        '<tool name="write_file">'
+        '<arg name="path">/tmp/summary.md</arg>'
+        '<arg name="content"># 제목\n본문 여러 줄\n</tool>'
+    )
+    calls = parse_tool_calls(text)
+    _assert(len(calls) == 1, f"tool 매치 수: {len(calls)}")
+    _assert(calls[0].args.get("path") == "/tmp/summary.md", "path 미복원")
+    _assert(
+        calls[0].args.get("content", "").startswith("# 제목"),
+        f"content 미복원: {calls[0].args.get('content', '')!r}",
+    )
+
+
 async def test_write_empty_content_warning():
     """write_file에 빈 content → 경고 메시지 포함."""
     import tempfile
@@ -844,6 +867,7 @@ async def main():
     check("browser tool: 없는 파일 안전", test_browser_tool_file_not_exists)
     check("watcher 규칙 매칭 + debounce", test_watcher_rule_matching)
     await acheck("빈 content write_file 경고", test_write_empty_content_warning)
+    check("tool 파싱: </arg> 누락 허용", test_parse_tool_missing_arg_closer)
 
     print("\n── TOP 4 (profile, planner, reviewer) ──")
     check("프로필 CRUD + addendum", test_profile_crud)

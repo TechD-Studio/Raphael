@@ -41,9 +41,10 @@ _TOOL_RE = re.compile(
     re.DOTALL,
 )
 
-# arg 파싱
+# arg 파싱 — gemma4가 종종 </arg>를 빼먹고 바로 </tool>로 닫는 패턴을 허용.
+# value는 다음 중 가장 먼저 만나는 경계까지: </arg>, 다음 <arg 시작, </tool>, 문자열 끝.
 _ARG_RE = re.compile(
-    r'<arg\s+name="(?P<name>[\w_]+)"\s*>(?P<value>.*?)</arg>',
+    r'<arg\s+name="(?P<name>[\w_]+)"\s*>(?P<value>.*?)(?:</arg>|(?=<arg\s+name=)|(?=</tool>)|\Z)',
     re.DOTALL,
 )
 
