@@ -636,7 +636,7 @@ export default function App() {
         api
           .uploadAttachment(f)
           .then((res) => {
-            const marker = `[PDF 첨부: ${f.name}, ${(f.size / 1024).toFixed(0)}KB]\n파일 경로: ${res.path}\n(file_reader 도구로 이 경로를 읽어 내용을 분석하세요)`;
+            const marker = `[PDF 첨부: ${f.name}, ${(f.size / 1024).toFixed(0)}KB]\n파일 경로: ${res.path}\n(read_file 도구로 이 경로를 읽어 내용을 분석하세요)`;
             setInput((prev) => prev.replace(placeholder, marker));
           })
           .catch((err) => {
