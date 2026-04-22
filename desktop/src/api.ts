@@ -233,6 +233,14 @@ export const api = {
   models: () => jget<ModelsInfo>("/models"),
   useModel: (key: string) => jpost<{ current: string }>("/models/use", { key }),
 
+  desktopConfig: () =>
+    jget<{ auto_web: boolean; lan_addresses: string[]; port: number }>("/desktop/config"),
+  updateDesktopConfig: (auto_web: boolean) =>
+    jpost<{ ok: boolean; auto_web: boolean; restart_required: boolean }>(
+      "/desktop/config",
+      { auto_web },
+    ),
+
   exportSession: (id: string, fmt: "markdown" | "json") =>
     jget<{ format: string; content: string; filename: string }>(
       `/sessions/${encodeURIComponent(id)}/export?fmt=${fmt}`,

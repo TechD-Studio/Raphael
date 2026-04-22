@@ -1091,6 +1091,79 @@ def save_pool(req: PoolReq):
     return {"ok": True, "count": len(cleaned)}
 
 
+def _desktop_config_path():
+    from pathlib import Path
+    p = Path.home() / ".raphael" / "config" / "desktop.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _read_desktop_config() -> dict:
+    import json
+    p = _desktop_config_path()
+    if not p.exists():
+        return {"auto_web": False}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return {"auto_web": bool(data.get("auto_web", False))}
+    except Exception:
+        return {"auto_web": False}
+
+
+def _lan_addresses() -> list[str]:
+    """주변 네트워크에서 접근 가능한 IPv4 후보를 수집한다.
+    (loopback/link-local 제외)"""
+    import socket
+    addrs: set[str] = set()
+    try:
+        host = socket.gethostname()
+        for info in socket.getaddrinfo(host, None, family=socket.AF_INET):
+            ip = info[4][0]
+            if ip and not ip.startswith("127.") and not ip.startswith("169.254."):
+                addrs.add(ip)
+    except Exception:
+        pass
+    # UDP 트릭 — 실제 송출 안 함, 라우팅 테이블에서 out 인터페이스 IP 획득
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith("127."):
+                addrs.add(ip)
+        finally:
+            s.close()
+    except Exception:
+        pass
+    return sorted(addrs)
+
+
+@app.get("/desktop/config")
+def get_desktop_config():
+    """데스크톱 설정 + 현재 바인딩 호스트 + LAN 후보 주소."""
+    return {
+        **_read_desktop_config(),
+        "lan_addresses": _lan_addresses(),
+        "port": 8765,
+    }
+
+
+class DesktopConfigReq(BaseModel):
+    auto_web: bool
+
+
+@app.post("/desktop/config")
+def update_desktop_config(req: DesktopConfigReq):
+    """desktop.json을 업데이트한다. Tauri가 다음 기동 시 읽어 bind host를 결정.
+    UI는 '재시작 필요' 힌트를 표시해야 한다."""
+    import json
+    p = _desktop_config_path()
+    current = _read_desktop_config()
+    current["auto_web"] = bool(req.auto_web)
+    p.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {"ok": True, "auto_web": current["auto_web"], "restart_required": True}
+
+
 @app.get("/models/installed")
 async def list_installed_models():
     """현재 설정된 ollama host에 실제 설치된 모델 목록 (Ollama /api/tags)."""

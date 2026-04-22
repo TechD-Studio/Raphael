@@ -96,6 +96,8 @@ export default function Settings({ onBack, onOllamaChange }: { onBack: () => voi
           <>
             <ServerPanel onSaved={onOllamaChange} />
             <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
+            <DesktopPanel />
+            <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
             <PoolPanel />
             <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e7e9ef" }} />
             <MCPPanel />
@@ -2314,6 +2316,93 @@ function ServerPanel({ onSaved }: { onSaved?: () => void }) {
           {saving ? "저장 중..." : "저장"}
         </button>
       </div>
+    </div>
+  );
+}
+
+
+function DesktopPanel() {
+  const [autoWeb, setAutoWeb] = useState(false);
+  const [lan, setLan] = useState<string[]>([]);
+  const [port, setPort] = useState(8765);
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+
+  async function refresh() {
+    try {
+      const cfg = await api.desktopConfig();
+      setAutoWeb(cfg.auto_web);
+      setLan(cfg.lan_addresses || []);
+      setPort(cfg.port || 8765);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoaded(true);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function save(next: boolean) {
+    setSaving(true);
+    setErr("");
+    setMsg("");
+    try {
+      const r = await api.updateDesktopConfig(next);
+      setAutoWeb(r.auto_web);
+      setMsg(
+        r.restart_required
+          ? "저장됨. 변경사항은 앱 재시작 후 적용됩니다."
+          : "저장됨.",
+      );
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!loaded) return <div className="muted">데스크톱 설정 불러오는 중...</div>;
+
+  return (
+    <div>
+      <h3 style={{ marginBottom: 8 }}>데스크톱 · 웹 서빙</h3>
+      <p className="muted" style={{ marginBottom: 12 }}>
+        앱을 실행하면 내부 데몬이 자동으로 시작됩니다. 아래 옵션을 켜면 LAN의
+        다른 기기(휴대폰·노트북)에서도 같은 웹 UI로 접속할 수 있습니다.
+      </p>
+      <label className="row" style={{ gap: 8, alignItems: "center" }}>
+        <input
+          type="checkbox"
+          checked={autoWeb}
+          disabled={saving}
+          onChange={(e) => save(e.target.checked)}
+        />
+        <span>앱 실행 시 외부 네트워크(LAN)에서 접속 허용 (0.0.0.0 바인딩)</span>
+      </label>
+      {autoWeb && (
+        <div style={{ marginTop: 12, padding: 10, background: "var(--bg-card)", borderRadius: 6 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+            접속 가능한 주소 (같은 네트워크에서):
+          </div>
+          {lan.length === 0 && (
+            <div className="muted" style={{ fontSize: 12 }}>
+              LAN 주소를 찾을 수 없습니다. 네트워크 연결 확인 후 새로고침하세요.
+            </div>
+          )}
+          {lan.map((ip) => (
+            <div key={ip} style={{ fontFamily: "monospace", fontSize: 13 }}>
+              http://{ip}:{port}/app
+            </div>
+          ))}
+        </div>
+      )}
+      {msg && <div className="ok-msg" style={{ marginTop: 8 }}>{msg}</div>}
+      {err && <div className="err" style={{ marginTop: 8 }}>{err}</div>}
     </div>
   );
 }

@@ -254,6 +254,26 @@ fn detect_stale_daemon(project_dir: &std::path::Path) -> Option<u32> {
     None
 }
 
+/// `~/.raphael/config/desktop.json`의 `auto_web` 플래그를 읽어 true면
+/// 데몬을 0.0.0.0에 바인딩(LAN 전체 접속 허용), false면 127.0.0.1에만 바인딩한다.
+/// 파일 없거나 파싱 실패면 false 취급.
+fn read_auto_web() -> bool {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return false,
+    };
+    let path = home.join(".raphael").join("config").join("desktop.json");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let v: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    v.get("auto_web").and_then(|x| x.as_bool()).unwrap_or(false)
+}
+
 /// macOS GUI 앱은 `/usr/bin:/bin:/usr/sbin:/sbin` 만 상속하므로 user-local 설치된
 /// `claude`, `node`, `ollama` 등을 데몬 서브프로세스가 못 찾는다.
 /// 흔한 설치 경로를 PATH 앞에 덧붙인 값을 반환한다.
@@ -291,6 +311,10 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
     // 데몬이 못 찾는 문제 방지
     let ext_path = extended_path();
     eprintln!("[raphael] extended PATH: {ext_path}");
+
+    // auto_web 플래그: 켜져있으면 0.0.0.0에 바인딩하여 LAN에서도 접근 가능
+    let bind_host = if read_auto_web() { "0.0.0.0" } else { "127.0.0.1" };
+    eprintln!("[raphael] bind host: {bind_host} (auto_web={})", read_auto_web());
 
     // 이미 실행 중이면 — 단, stale 코드면 kill 하고 재spawn.
     if std::net::TcpStream::connect_timeout(
@@ -336,7 +360,7 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
         eprintln!("[raphael] trying: {py_str} -m uvicorn (cwd={project_dir})");
         match std::process::Command::new(py)
             .args(["-m", "uvicorn", "interfaces.daemon:app",
-                   "--host", "127.0.0.1", "--port", "8765"])
+                   "--host", bind_host, "--port", "8765"])
             .current_dir(project_path)
             .env("PATH", &ext_path)
             .stdout(std::process::Stdio::null())
@@ -366,7 +390,7 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
     if raphaeld_path.exists() {
         eprintln!("[raphael] fallback: PyInstaller {}", raphaeld_path.display());
         match std::process::Command::new(&raphaeld_path)
-            .args(["--host", "127.0.0.1", "--port", "8765"])
+            .args(["--host", bind_host, "--port", "8765"])
             .env("PATH", &ext_path)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
