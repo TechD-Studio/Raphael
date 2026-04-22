@@ -254,12 +254,43 @@ fn detect_stale_daemon(project_dir: &std::path::Path) -> Option<u32> {
     None
 }
 
+/// macOS GUI 앱은 `/usr/bin:/bin:/usr/sbin:/sbin` 만 상속하므로 user-local 설치된
+/// `claude`, `node`, `ollama` 등을 데몬 서브프로세스가 못 찾는다.
+/// 흔한 설치 경로를 PATH 앞에 덧붙인 값을 반환한다.
+fn extended_path() -> String {
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/Users"))
+        .to_string_lossy().to_string();
+    let extras = [
+        format!("{home}/.local/bin"),
+        format!("{home}/.npm-global/bin"),
+        format!("{home}/bin"),
+        "/opt/homebrew/bin".to_string(),
+        "/opt/homebrew/sbin".to_string(),
+        "/usr/local/bin".to_string(),
+        "/usr/local/sbin".to_string(),
+    ];
+    let existing = std::env::var("PATH").unwrap_or_default();
+    let existing_set: std::collections::HashSet<&str> = existing.split(':').collect();
+    let mut parts: Vec<String> = extras.into_iter()
+        .filter(|p| !existing_set.contains(p.as_str()))
+        .collect();
+    if !existing.is_empty() {
+        parts.push(existing);
+    }
+    parts.join(":")
+}
+
 fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
     // Raphael 프로젝트 디렉토리 (dev 환경에서만 존재)
     let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/Users"))
         .to_string_lossy().to_string();
     let project_dir = format!("{home}/Raphael");
     let project_path = std::path::Path::new(&project_dir);
+
+    // GUI 앱 상속 PATH가 비어있어 claude/node/ollama 등 user-local 바이너리를
+    // 데몬이 못 찾는 문제 방지
+    let ext_path = extended_path();
+    eprintln!("[raphael] extended PATH: {ext_path}");
 
     // 이미 실행 중이면 — 단, stale 코드면 kill 하고 재spawn.
     if std::net::TcpStream::connect_timeout(
@@ -307,6 +338,7 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
             .args(["-m", "uvicorn", "interfaces.daemon:app",
                    "--host", "127.0.0.1", "--port", "8765"])
             .current_dir(project_path)
+            .env("PATH", &ext_path)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
@@ -335,6 +367,7 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
         eprintln!("[raphael] fallback: PyInstaller {}", raphaeld_path.display());
         match std::process::Command::new(&raphaeld_path)
             .args(["--host", "127.0.0.1", "--port", "8765"])
+            .env("PATH", &ext_path)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()

@@ -29,10 +29,38 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 from dataclasses import dataclass
+from pathlib import Path
 
 from loguru import logger
+
+# Tauri GUI 앱은 `/usr/bin:/bin:/usr/sbin:/sbin`만 상속하므로 shutil.which("claude")가
+# user-local 설치(npm, curl installer)를 못 찾는다. 흔한 설치 경로를 직접 탐색한다.
+_CLAUDE_FALLBACK_PATHS: tuple[Path, ...] = (
+    Path.home() / ".local" / "bin" / "claude",
+    Path.home() / ".npm-global" / "bin" / "claude",
+    Path.home() / "node_modules" / ".bin" / "claude",
+    Path("/opt/homebrew/bin/claude"),
+    Path("/usr/local/bin/claude"),
+    Path("/usr/bin/claude"),
+)
+
+
+def _find_claude_cli() -> str | None:
+    """PATH → 알려진 fallback 경로 순으로 claude 바이너리를 찾는다."""
+    found = shutil.which("claude")
+    if found:
+        return found
+    for p in _CLAUDE_FALLBACK_PATHS:
+        try:
+            if p.exists() and os.access(p, os.X_OK):
+                logger.debug(f"claude CLI fallback 경로 사용: {p}")
+                return str(p)
+        except OSError:
+            continue
+    return None
 
 
 class ClaudeCLIError(Exception):
@@ -47,7 +75,7 @@ class ClaudeCodeProvider:
 
     def __post_init__(self) -> None:
         if self.cli_path is None:
-            self.cli_path = shutil.which("claude")
+            self.cli_path = _find_claude_cli()
 
     def is_available(self) -> bool:
         return self.cli_path is not None
@@ -101,6 +129,23 @@ class ClaudeCodeProvider:
             cmd.extend(cli_args)
         return cmd
 
+    def _subprocess_env(self) -> dict:
+        """claude CLI 서브프로세스용 환경변수. PATH에 claude 바이너리의 디렉터리와
+        node 등이 있을 수 있는 흔한 경로를 보강한다 (Tauri GUI 앱에서 spawn됐을 때 대비)."""
+        env = dict(os.environ)
+        extra = [
+            str(Path(self.cli_path).parent) if self.cli_path else "",
+            str(Path.home() / ".local" / "bin"),
+            str(Path.home() / ".nvm" / "versions" / "node"),  # nvm 사용자 접두사
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+        ]
+        existing = env.get("PATH", "")
+        parts = [p for p in extra if p and p not in existing.split(":")]
+        if parts:
+            env["PATH"] = ":".join(parts + ([existing] if existing else []))
+        return env
+
     # ── 비스트리밍 chat ────────────────────────────────────
 
     @staticmethod
@@ -136,6 +181,7 @@ class ClaudeCodeProvider:
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=self._subprocess_env(),
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
@@ -170,6 +216,7 @@ class ClaudeCodeProvider:
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=self._subprocess_env(),
         )
         try:
             assert proc.stdout is not None
