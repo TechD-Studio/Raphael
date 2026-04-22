@@ -192,3 +192,12 @@ jobs:
           PY
 
           gh release upload "${TAG}" latest.json --clobber
+
+      - name: Promote draft release to published (latest)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # tauri-action 이 releaseDraft: true 로 만든 Draft 를 여기서 승격.
+          # updater 엔드포인트(/releases/latest/...)는 Draft 를 건너뛰므로
+          # Publish + --latest 플래그까지 걸어야 자동 업데이트가 동작.
+          gh release edit "${GITHUB_REF_NAME}" --draft=false --latest
