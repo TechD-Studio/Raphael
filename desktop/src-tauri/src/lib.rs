@@ -240,12 +240,25 @@ fn detect_stale_daemon(project_dir: &std::path::Path) -> Option<u32> {
     };
     let running_mtime = v.get("source_mtime").and_then(|x| x.as_i64()).unwrap_or(0);
     let pid = v.get("pid").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+    let running_host = v.get("bind_host").and_then(|x| x.as_str()).unwrap_or("");
 
     // 1초 허용 — 동일 코드라도 os mtime 해상도 차이 흡수
     if running_mtime + 1 < expected_mtime {
         eprintln!(
             "[raphael] stale daemon detected: running mtime={} expected={} (PID {})",
             running_mtime, expected_mtime, pid
+        );
+        if pid > 0 {
+            return Some(pid);
+        }
+    }
+
+    // bind host 변경 감지 — auto_web 토글 후 재시작 자동화
+    let desired_host = if read_auto_web() { "0.0.0.0" } else { "127.0.0.1" };
+    if !running_host.is_empty() && running_host != desired_host {
+        eprintln!(
+            "[raphael] bind host changed: running={} desired={} (PID {})",
+            running_host, desired_host, pid
         );
         if pid > 0 {
             return Some(pid);
@@ -363,6 +376,7 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
                    "--host", bind_host, "--port", "8765"])
             .current_dir(project_path)
             .env("PATH", &ext_path)
+            .env("RAPHAEL_BIND_HOST", bind_host)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
@@ -392,6 +406,7 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
         match std::process::Command::new(&raphaeld_path)
             .args(["--host", bind_host, "--port", "8765"])
             .env("PATH", &ext_path)
+            .env("RAPHAEL_BIND_HOST", bind_host)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()

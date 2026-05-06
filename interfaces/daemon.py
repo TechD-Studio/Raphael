@@ -100,8 +100,14 @@ _DAEMON_SOURCE = Path(__file__).resolve()
 
 def _compute_source_mtime() -> int:
     import os as _os
+    # PyInstaller onefile 환경: __file__이 _MEI* 추출 디렉토리를 가리키지만
+    # .py 소스는 추출되지 않고 .pyc만 번들되어 stat()이 FileNotFoundError를 던짐.
+    # 이 경우 mtime 추적은 의미가 없으므로 0을 반환하고 dev 모드에서만 동작시킨다.
+    try:
+        latest = int(_DAEMON_SOURCE.stat().st_mtime)
+    except (FileNotFoundError, OSError):
+        return 0
     project_root = _DAEMON_SOURCE.parent.parent
-    latest = int(_DAEMON_SOURCE.stat().st_mtime)
     for sub in ("core", "tools", "config", "interfaces"):
         d = project_root / sub
         if not d.is_dir():
@@ -122,7 +128,11 @@ def _compute_source_mtime() -> int:
     return latest
 
 
-_DAEMON_SOURCE_MTIME = _compute_source_mtime()
+try:
+    _DAEMON_SOURCE_MTIME = _compute_source_mtime()
+except Exception as _e:
+    # 어떤 이유로든 mtime 계산이 실패해도 데몬 자체 부팅을 막지 않는다.
+    _DAEMON_SOURCE_MTIME = 0
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -175,6 +185,7 @@ def healthz():
         "version": app.version,
         "source_mtime": _DAEMON_SOURCE_MTIME,
         "pid": os.getpid(),
+        "bind_host": os.environ.get("RAPHAEL_BIND_HOST", ""),
     }
 
 
@@ -2098,6 +2109,7 @@ def serve(
     if ctx.invoked_subcommand is not None:
         return
     import uvicorn
+    os.environ.setdefault("RAPHAEL_BIND_HOST", host)
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
