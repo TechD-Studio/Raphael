@@ -1,5 +1,6 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Manager, RunEvent, State};
@@ -14,6 +15,39 @@ struct DaemonState(std::sync::Arc<Mutex<Option<CommandChild>>>);
 // 에서 atomic replace 가 silent 로 실패해 v0.1.45 → v0.1.46 업데이트가
 // 적용되지 않는 사례가 발생.
 static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+// 막 spawn 한 데몬 PID + 시각. ensure_daemon 폴링이 데몬 bind 전(보통 4~6초)에
+// 재진입했을 때 자기가 방금 띄운 데몬을 stale 로 오인해 kill 하는 race 를 막기
+// 위함. SPAWN_PROTECT_SECS 동안 보호.
+static LAST_SPAWNED_PID: AtomicU32 = AtomicU32::new(0);
+static LAST_SPAWNED_AT: AtomicI64 = AtomicI64::new(0);
+const SPAWN_PROTECT_SECS: i64 = 30;
+
+fn now_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn protected_pid() -> u32 {
+    let pid = LAST_SPAWNED_PID.load(Ordering::SeqCst);
+    let at = LAST_SPAWNED_AT.load(Ordering::SeqCst);
+    if pid > 0 && now_secs() - at < SPAWN_PROTECT_SECS {
+        pid
+    } else {
+        0
+    }
+}
+
+fn is_pid_alive(pid: u32) -> bool {
+    use std::process::Command;
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
 
 #[tauri::command]
 fn daemon_url() -> String {
@@ -61,9 +95,14 @@ fn cancel_update() -> Result<(), String> {
 
 fn kill_stale_daemon() {
     use std::process::Command;
+    let my_pid = std::process::id();
+    let protected = protected_pid();
+    if protected > 0 {
+        eprintln!("[raphael] kill_stale_daemon: protecting recently-spawned PID {protected}");
+    }
     #[cfg(unix)]
     {
-        // 1. Kill any process on port 8765
+        // 1. Kill any process on port 8765 (보호 PID 제외)
         if let Ok(output) = Command::new("lsof")
             .args(["-ti", "tcp:8765"])
             .output()
@@ -71,8 +110,7 @@ fn kill_stale_daemon() {
             let pids = String::from_utf8_lossy(&output.stdout);
             for pid in pids.split_whitespace() {
                 if let Ok(pid_num) = pid.trim().parse::<u32>() {
-                    let my_pid = std::process::id();
-                    if pid_num != my_pid {
+                    if pid_num != my_pid && pid_num != protected {
                         eprintln!("[raphael] killing stale process on :8765 (PID {pid_num})");
                         let _ = Command::new("kill").arg(pid.trim()).output();
                     }
@@ -82,7 +120,7 @@ fn kill_stale_daemon() {
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
-        // 2. Kill any stale raphaeld sidecar processes
+        // 2. Kill any stale raphaeld sidecar processes (보호 PID 제외)
         if let Ok(output) = Command::new("pgrep")
             .args(["-f", "raphaeld"])
             .output()
@@ -90,8 +128,7 @@ fn kill_stale_daemon() {
             let pids = String::from_utf8_lossy(&output.stdout);
             for pid in pids.split_whitespace() {
                 if let Ok(pid_num) = pid.trim().parse::<u32>() {
-                    let my_pid = std::process::id();
-                    if pid_num != my_pid {
+                    if pid_num != my_pid && pid_num != protected {
                         eprintln!("[raphael] killing stale raphaeld (PID {pid_num})");
                         let _ = Command::new("kill").arg(pid.trim()).output();
                     }
@@ -106,7 +143,6 @@ fn kill_stale_daemon() {
             let pids = String::from_utf8_lossy(&output.stdout);
             for pid in pids.split_whitespace() {
                 if let Ok(pid_num) = pid.trim().parse::<u32>() {
-                    let my_pid = std::process::id();
                     if pid_num != my_pid {
                         eprintln!("[raphael] killing stale app instance (PID {pid_num})");
                         let _ = Command::new("kill").arg(pid.trim()).output();
@@ -121,9 +157,12 @@ fn kill_stale_daemon() {
         let _ = Command::new("cmd")
             .args(["/C", "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :8765 ^| findstr LISTENING') do taskkill /F /PID %a"])
             .output();
-        let _ = Command::new("taskkill")
-            .args(["/F", "/IM", "raphaeld.exe"])
-            .output();
+        // Windows 는 PID 단위 보호가 어렵다. 보호 PID 가 없을 때만 일괄 kill.
+        if protected == 0 {
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", "raphaeld.exe"])
+                .output();
+        }
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
@@ -364,6 +403,14 @@ fn spawn_daemon(app: &tauri::AppHandle) -> Result<CommandChild, String> {
     let bind_host = if read_auto_web() { "0.0.0.0" } else { "127.0.0.1" };
     eprintln!("[raphael] bind host: {bind_host} (auto_web={})", read_auto_web());
 
+    // 막 spawn 한 데몬이 아직 bind 중(보통 4~6초)이면 그대로 둔다.
+    // 이걸 안 막으면 ensure_daemon 폴링이 자기가 띄운 데몬을 stale 로 오인해 kill 한다.
+    let prot = protected_pid();
+    if prot > 0 && is_pid_alive(prot) {
+        eprintln!("[raphael] daemon (PID {prot}) recently spawned, still binding — skip respawn");
+        return Err("already running".to_string());
+    }
+
     // 이미 실행 중이면 — 단, stale 코드면 kill 하고 재spawn.
     if std::net::TcpStream::connect_timeout(
         &"127.0.0.1:8765".parse().unwrap(),
@@ -417,7 +464,10 @@ fn spawn_daemon(app: &tauri::AppHandle) -> Result<CommandChild, String> {
             .spawn()
         {
             Ok(child) => {
-                eprintln!("[raphael] Python daemon spawned (PID {})", child.id());
+                let cpid = child.id();
+                LAST_SPAWNED_PID.store(cpid, Ordering::SeqCst);
+                LAST_SPAWNED_AT.store(now_secs(), Ordering::SeqCst);
+                eprintln!("[raphael] Python daemon spawned (PID {cpid})");
                 return Err("direct_spawn_ok".to_string());
             }
             Err(e) => {
@@ -460,7 +510,10 @@ fn spawn_daemon(app: &tauri::AppHandle) -> Result<CommandChild, String> {
             .spawn()
         {
             Ok(child) => {
-                eprintln!("[raphael] PyInstaller daemon spawned (PID {})", child.id());
+                let cpid = child.id();
+                LAST_SPAWNED_PID.store(cpid, Ordering::SeqCst);
+                LAST_SPAWNED_AT.store(now_secs(), Ordering::SeqCst);
+                eprintln!("[raphael] PyInstaller daemon spawned (PID {cpid})");
                 return Err("direct_spawn_ok".to_string());
             }
             Err(e) => eprintln!("[raphael] PyInstaller spawn failed: {e}"),
