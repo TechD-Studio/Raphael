@@ -7,10 +7,6 @@
     "core:default",
     "opener:default",
     "shell:allow-execute",
-    {
-      "identifier": "shell:allow-spawn",
-      "allow": [{ "name": "binaries/raphaeld", "sidecar": true, "args": true }]
-    },
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
     "global-shortcut:allow-is-registered",

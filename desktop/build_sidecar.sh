@@ -1,32 +1,25 @@
 #!/usr/bin/env bash
-# Raphael 데몬을 PyInstaller로 단일 바이너리화 → Tauri sidecar로 사용.
-# 출력: desktop/src-tauri/binaries/raphaeld-<target-triple>
+# Raphael 데몬을 PyInstaller --onedir 로 빌드 → Tauri resources 로 번들링.
+# --onefile 은 매 실행마다 _MEI 추출(70MB)에 ~3~5초가 들어 콜드 스타트가
+# 길어진다. --onedir 은 추출이 없어 ~0.5초로 떨어진다.
+# 출력: desktop/src-tauri/binaries/raphaeld/  (raphaeld 바이너리 + _internal/)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# venv 준비 + pyinstaller 설치
 if [ ! -d ".venv" ]; then
     python3 -m venv .venv
 fi
 source .venv/bin/activate
 pip install -q pyinstaller fastapi uvicorn
 
-# 타깃 트리플 자동 감지
-case "$(uname -s)-$(uname -m)" in
-    Darwin-arm64)  TRIPLE="aarch64-apple-darwin" ;;
-    Darwin-x86_64) TRIPLE="x86_64-apple-darwin" ;;
-    Linux-x86_64)  TRIPLE="x86_64-unknown-linux-gnu" ;;
-    *) echo "Unsupported platform: $(uname -sm)"; exit 1 ;;
-esac
-
 OUT_DIR="desktop/src-tauri/binaries"
 mkdir -p "$OUT_DIR"
+rm -rf "$OUT_DIR/raphaeld"
 
-# PyInstaller — 단일 파일 + Raphael 모든 모듈/데이터 포함
 pyinstaller \
-    --onefile \
-    --name "raphaeld-${TRIPLE}" \
+    --onedir \
+    --name "raphaeld" \
     --distpath "$OUT_DIR" \
     --workpath "build/pyinstaller" \
     --specpath "build/pyinstaller" \
@@ -39,4 +32,4 @@ pyinstaller \
     --collect-submodules core --collect-submodules tools \
     interfaces/daemon.py
 
-echo "✅ Sidecar built: $OUT_DIR/raphaeld-${TRIPLE}"
+echo "✅ Sidecar built: $OUT_DIR/raphaeld/raphaeld"

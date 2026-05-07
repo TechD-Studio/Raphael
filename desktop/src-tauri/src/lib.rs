@@ -149,21 +149,21 @@ fn cleanup_pyinstaller_temp() {
     }
 }
 
-fn remove_quarantine() {
+fn remove_quarantine(raphaeld_dir: &std::path::Path) {
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
+        if raphaeld_dir.exists() {
+            // 폴더 전체에서 재귀 제거 — _internal/ 안의 .so 파일들도 모두 quarantine 풀어야
+            // PyInstaller onedir 부트로더가 import 가능.
+            let _ = Command::new("xattr")
+                .args(["-dr", "com.apple.quarantine"])
+                .arg(raphaeld_dir)
+                .output();
+            eprintln!("[raphael] quarantine removed from {}", raphaeld_dir.display());
+        }
         if let Ok(exe) = std::env::current_exe() {
             if let Some(macos_dir) = exe.parent() {
-                let raphaeld = macos_dir.join("raphaeld");
-                if raphaeld.exists() {
-                    let _ = Command::new("xattr")
-                        .args(["-dr", "com.apple.quarantine"])
-                        .arg(&raphaeld)
-                        .output();
-                    eprintln!("[raphael] quarantine removed from {}", raphaeld.display());
-                }
-                // Also remove from app bundle
                 if let Some(contents) = macos_dir.parent() {
                     if let Some(app_dir) = contents.parent() {
                         let _ = Command::new("xattr")
@@ -175,6 +175,8 @@ fn remove_quarantine() {
             }
         }
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = raphaeld_dir;
 }
 
 /// 실행 중인 데몬이 현재 소스 코드와 같은 버전인지 확인.
@@ -346,7 +348,7 @@ fn extended_path() -> String {
     parts.join(":")
 }
 
-fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
+fn spawn_daemon(app: &tauri::AppHandle) -> Result<CommandChild, String> {
     // Raphael 프로젝트 디렉토리 (dev 환경에서만 존재)
     let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/Users"))
         .to_string_lossy().to_string();
@@ -424,19 +426,32 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
         }
     }
 
-    // 방법 2 (fallback): PyInstaller sidecar
+    // 방법 2 (fallback): PyInstaller --onedir sidecar
+    // bundle.resources 가 binaries/raphaeld/ 를 .app/Contents/Resources/raphaeld/ 로 복사한다.
+    // --onefile 시절의 _MEI 임시 디렉토리 정리는 더 이상 불필요(onedir 은 추출 없음)이지만
+    // 과거 설치본 잔존 가능성 때문에 한 번 호출해 둔다.
     cleanup_pyinstaller_temp();
-    remove_quarantine();
 
-    let raphaeld_path = std::env::current_exe()
-        .map_err(|e| format!("exe path: {e}"))?
-        .parent()
-        .ok_or("no parent dir")?
-        .join("raphaeld");
+    use tauri::Manager;
+    let resource_dir = match app.path().resource_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("[raphael] resource_dir() failed: {e}");
+            return Err(format!("resource_dir: {e}"));
+        }
+    };
+    let raphaeld_dir = resource_dir.join("raphaeld");
+    let raphaeld_bin = if cfg!(windows) {
+        raphaeld_dir.join("raphaeld.exe")
+    } else {
+        raphaeld_dir.join("raphaeld")
+    };
 
-    if raphaeld_path.exists() {
-        eprintln!("[raphael] fallback: PyInstaller {}", raphaeld_path.display());
-        match std::process::Command::new(&raphaeld_path)
+    remove_quarantine(&raphaeld_dir);
+
+    if raphaeld_bin.exists() {
+        eprintln!("[raphael] fallback: PyInstaller onedir {}", raphaeld_bin.display());
+        match std::process::Command::new(&raphaeld_bin)
             .args(["--host", bind_host, "--port", "8765"])
             .env("PATH", &ext_path)
             .env("RAPHAEL_BIND_HOST", bind_host)
@@ -450,6 +465,8 @@ fn spawn_daemon(_app: &tauri::AppHandle) -> Result<CommandChild, String> {
             }
             Err(e) => eprintln!("[raphael] PyInstaller spawn failed: {e}"),
         }
+    } else {
+        eprintln!("[raphael] raphaeld binary not found at {}", raphaeld_bin.display());
     }
 
     Err("all spawn methods failed".to_string())
