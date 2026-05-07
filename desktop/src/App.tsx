@@ -142,7 +142,16 @@ export default function App() {
     if (!updateInfo) return;
     setUpdateInstalling(true);
     setUpdateProgress(0);
+    const { invoke } = await import("@tauri-apps/api/core");
     try {
+      // macOS Sequoia 에서 sidecar(PyInstaller onefile) 가 .app 안 바이너리를
+      // mmap 한 채로 있으면 atomic replace 가 silent 로 실패해 업데이트가
+      // 적용되지 않는다. 다운로드 직전에 데몬을 죽이고 watchdog 도 정지.
+      try {
+        await invoke("prepare_for_update");
+      } catch (e) {
+        console.warn("prepare_for_update failed:", e);
+      }
       let total = 0;
       let received = 0;
       await updateInfo.update.downloadAndInstall((ev: any) => {
@@ -158,6 +167,10 @@ export default function App() {
       const { relaunch } = await import("@tauri-apps/plugin-process");
       await relaunch();
     } catch (e: any) {
+      // 실패 시 watchdog 재개해서 sidecar 가 다시 살아나도록 한다.
+      try {
+        await invoke("cancel_update");
+      } catch {}
       alert(`업데이트 실패: ${e?.message || e}`);
       setUpdateInstalling(false);
     }

@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -7,6 +8,12 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 struct DaemonState(std::sync::Arc<Mutex<Option<CommandChild>>>);
+
+// 업데이트 진행 중에는 watchdog 의 sidecar 재spawn 을 막아야 한다.
+// 새 .app 교체 도중 PyInstaller onefile 바이너리가 다시 mmap 되면 macOS Sequoia
+// 에서 atomic replace 가 silent 로 실패해 v0.1.45 → v0.1.46 업데이트가
+// 적용되지 않는 사례가 발생.
+static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 #[tauri::command]
 fn daemon_url() -> String {
@@ -24,6 +31,32 @@ fn ensure_daemon(app: tauri::AppHandle, _state: State<'_, DaemonState>) -> Resul
         Err(e) if e == "already running" => Ok("already running".to_string()),
         Err(e) => Err(e),
     }
+}
+
+/// 자동 업데이트 직전에 호출.
+/// 1) UPDATE_IN_PROGRESS 플래그를 켜서 watchdog 의 sidecar 재spawn 을 정지.
+/// 2) 관리 중인 sidecar child 를 명시적으로 kill.
+/// 3) :8765 점유 + raphaeld 잔존 프로세스까지 정리.
+/// 4) 파일 핸들 해제를 위해 짧게 sleep.
+#[tauri::command]
+fn prepare_for_update(state: State<'_, DaemonState>) -> Result<(), String> {
+    eprintln!("[raphael] prepare_for_update: suspending watchdog + killing daemon");
+    UPDATE_IN_PROGRESS.store(true, Ordering::SeqCst);
+    let child_opt = state.0.lock().unwrap().take();
+    if let Some(child) = child_opt {
+        let _ = child.kill();
+    }
+    kill_stale_daemon();
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    Ok(())
+}
+
+/// 업데이트가 실패/취소된 경우 watchdog 를 재개.
+#[tauri::command]
+fn cancel_update() -> Result<(), String> {
+    eprintln!("[raphael] cancel_update: resuming watchdog");
+    UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
+    Ok(())
 }
 
 fn kill_stale_daemon() {
@@ -518,6 +551,11 @@ pub fn run() {
                 std::thread::spawn(move || {
                     loop {
                         std::thread::sleep(std::time::Duration::from_secs(10));
+                        // 업데이트 중이면 sidecar 가 죽어있어도 절대 재spawn 하지 않는다.
+                        // 새 .app 교체가 끝나고 relaunch 될 때까지 손대지 않는다.
+                        if UPDATE_IN_PROGRESS.load(Ordering::SeqCst) {
+                            continue;
+                        }
                         // Quick TCP check
                         let alive = std::net::TcpStream::connect_timeout(
                             &"127.0.0.1:8765".parse().unwrap(),
@@ -577,7 +615,12 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![daemon_url, ensure_daemon])
+        .invoke_handler(tauri::generate_handler![
+            daemon_url,
+            ensure_daemon,
+            prepare_for_update,
+            cancel_update
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
