@@ -200,6 +200,12 @@ async function jupload<T>(path: string, file: File): Promise<T> {
 
 export const api = {
   health: () => jget<{ ok: boolean; version: string }>("/healthz"),
+  readyz: () =>
+    jget<{
+      mcp_ready: boolean;
+      mcp_error: string | null;
+      mcp_servers: { name: string; tools: number }[];
+    }>("/readyz"),
   uploadAttachment: (file: File) =>
     jupload<{ path: string; size: number; filename: string }>("/upload", file),
   sessions: () => jget<SessionMeta[]>("/sessions"),

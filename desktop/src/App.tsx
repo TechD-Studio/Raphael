@@ -34,6 +34,8 @@ export default function App() {
   const [tickNow, setTickNow] = useState(Date.now());
   const [models, setModels] = useState<ModelsInfo | null>(null);
   const [healthy, setHealthy] = useState<boolean>(false);
+  // MCP 백그라운드 init 상태 — daemon 자체는 살아있어도 MCP 도구는 아직일 수 있음
+  const [mcpReady, setMcpReady] = useState<boolean | null>(null);
   const [ollamaStatus, setOllamaStatus] = useState<"ok" | "unreachable" | "checking">("checking");
   const [tools, setTools] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -226,6 +228,33 @@ export default function App() {
       alive = false;
     };
   }, []);
+
+  // MCP readiness 폴링 — daemon 살아있고 MCP 가 아직이면 3초마다 /readyz 조회.
+  // mcp_ready=true 가 될 때까지 폴링 후 종료.
+  useEffect(() => {
+    if (!healthy) return;
+    if (mcpReady === true) return;
+    let alive = true;
+    (async () => {
+      while (alive) {
+        try {
+          const r = await api.readyz();
+          if (!alive) return;
+          setMcpReady(r.mcp_ready);
+          if (r.mcp_ready) return;
+        } catch {
+          // /readyz 실패 시 — 옛 버전 데몬일 수 있음. ready 로 간주 후 종료.
+          if (!alive) return;
+          setMcpReady(true);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [healthy, mcpReady]);
 
   // 주기적 health check — sidecar가 죽으면 감지하고 재연결 대기
   useEffect(() => {
@@ -1104,11 +1133,13 @@ export default function App() {
           <span style={{ fontSize: 12 }}>
             {!healthy
               ? "데몬 대기..."
-              : ollamaStatus === "ok"
-                ? "연결됨"
-                : ollamaStatus === "checking"
-                  ? "확인 중..."
-                  : "Ollama 연결 실패"}
+              : mcpReady === false
+                ? "MCP 연결 중..."
+                : ollamaStatus === "ok"
+                  ? "연결됨"
+                  : ollamaStatus === "checking"
+                    ? "확인 중..."
+                    : "Ollama 연결 실패"}
           </span>
           {models && (
             <select

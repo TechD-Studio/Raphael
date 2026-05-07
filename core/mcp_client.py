@@ -45,7 +45,12 @@ class MCPClientManager:
         self._exit_stack: AsyncExitStack | None = None
 
     async def start(self, registry: ToolRegistry) -> None:
-        """settings의 mcp.servers를 모두 기동하고 ToolRegistry에 등록한다."""
+        """settings의 mcp.servers를 모두 기동하고 ToolRegistry에 등록한다.
+
+        서버들은 asyncio.gather 로 병렬 기동한다. npx 콜드 스타트가 서버당
+        5~30초 걸리므로 순차 기동은 합산 지연이 곧 데몬 부팅 지연이 된다.
+        하나가 실패해도 나머지는 계속 시도(return_exceptions=True).
+        """
         settings = get_settings()
         servers_cfg = (settings.get("mcp") or {}).get("servers") or []
         if not servers_cfg:
@@ -57,9 +62,9 @@ class MCPClientManager:
 
         self._exit_stack = AsyncExitStack()
 
-        for cfg in servers_cfg:
+        async def _start_one(cfg: dict) -> None:
+            name = cfg.get("name", "?")
             try:
-                name = cfg["name"]
                 params = StdioServerParameters(
                     command=cfg["command"],
                     args=cfg.get("args", []),
@@ -72,19 +77,21 @@ class MCPClientManager:
                 tools_resp = await session.list_tools()
                 tool_names = []
                 for tool in tools_resp.tools:
-                    full = f"mcp_{name}_{tool.name}"
-                    tool_names.append(full)
-                    # ToolRegistry에 wrapper 등록 — 호출 시 MCP 서버에 위임
+                    tool_names.append(f"mcp_{name}_{tool.name}")
                     registry.register(
                         f"mcp:{name}:{tool.name}",
                         _MCPToolProxy(session, tool.name),
                         f"[MCP {name}] {tool.description or tool.name}",
                     )
-
                 self.servers[name] = MCPServerHandle(name=name, session=session, tools=tool_names)
                 logger.info(f"MCP 서버 연결: {name} ({len(tool_names)}개 도구)")
             except Exception as e:
-                logger.error(f"MCP 서버 '{cfg.get('name', '?')}' 연결 실패: {e}")
+                logger.error(f"MCP 서버 '{name}' 연결 실패: {e}")
+
+        await asyncio.gather(
+            *(_start_one(cfg) for cfg in servers_cfg),
+            return_exceptions=True,
+        )
 
     async def stop(self) -> None:
         if self._exit_stack:

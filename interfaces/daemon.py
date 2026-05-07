@@ -64,30 +64,53 @@ def _cleanup_empty_sessions():
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
+    # 빠른(동기적) 초기화만 lifespan 안에서 실행 → uvicorn 이 즉시 포트를 bind 하고
+    # /healthz 가 응답 가능한 상태로 만든다. MCP 서버 기동(npx 콜드 스타트가 서버당
+    # 5~30초)은 백그라운드 태스크로 분리해 부팅을 막지 않는다.
     orch = _init_runtime()
     _cleanup_empty_sessions()
-    # MCP 서버 연결 — settings.yaml의 mcp.servers 로 정의된 서버를 모두 띄우고
-    # 에이전트 공용 ToolRegistry에 도구를 등록한다. 실패해도 데몬 자체는 살아있어야 함.
-    global mcp_manager
+
+    global mcp_manager, _mcp_ready, _mcp_error
     mcp_manager = MCPClientManager()
-    if orch and orch._agents:
-        # 어느 에이전트의 registry든 동일 객체 (generic agent 공유) — 첫 번째 사용
-        first_agent = next(iter(orch._agents.values()))
-        shared_registry = first_agent.tool_registry
-        if shared_registry is not None:
-            try:
-                await mcp_manager.start(shared_registry)
-            except Exception as e:
-                logger.error(f"MCP 서버 기동 실패 (계속 진행): {e}")
-    yield
+    _mcp_ready = False
+    _mcp_error = None
+
+    async def _bg_init_mcp() -> None:
+        global _mcp_ready, _mcp_error
+        try:
+            if orch and orch._agents:
+                first_agent = next(iter(orch._agents.values()))
+                shared_registry = first_agent.tool_registry
+                if shared_registry is not None:
+                    await mcp_manager.start(shared_registry)
+        except Exception as e:
+            _mcp_error = str(e)
+            logger.error(f"MCP 서버 기동 실패 (계속 진행): {e}")
+        finally:
+            _mcp_ready = True
+
+    bg_task = asyncio.create_task(_bg_init_mcp())
     try:
-        await mcp_manager.stop()
-    except Exception:
-        pass
+        yield
+    finally:
+        # 종료 시 백그라운드 init 가 아직이면 취소 후 cleanup
+        if not bg_task.done():
+            bg_task.cancel()
+            try:
+                await bg_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        try:
+            await mcp_manager.stop()
+        except Exception:
+            pass
 
 
 # 전역 MCP 매니저 — 시스템 프롬프트 주입 시 연결된 서버 목록을 조회하기 위함
 mcp_manager: MCPClientManager | None = None
+# Readiness 플래그 — /readyz 가 참조. lifespan 백그라운드 init 가 끝나면 True.
+_mcp_ready: bool = False
+_mcp_error: str | None = None
 
 
 app = FastAPI(title="raphaeld", version="0.1.0", lifespan=_lifespan)
@@ -180,12 +203,28 @@ def root_redirect():
 
 @app.get("/healthz")
 def healthz():
+    """Liveness — 데몬 프로세스 살아있고 포트 bind 됨. MCP 준비 여부와 무관."""
     return {
         "ok": True,
         "version": app.version,
         "source_mtime": _DAEMON_SOURCE_MTIME,
         "pid": os.getpid(),
         "bind_host": os.environ.get("RAPHAEL_BIND_HOST", ""),
+    }
+
+
+@app.get("/readyz")
+def readyz():
+    """Readiness — MCP 백그라운드 init 가 끝났는지. 안 끝났어도 채팅은 가능하지만
+    MCP 도구는 아직 사용 못 할 수 있음. 프론트엔드가 'MCP 연결 중' 배지 표시용."""
+    servers: list[dict] = []
+    if mcp_manager:
+        for name, h in mcp_manager.servers.items():
+            servers.append({"name": name, "tools": len(h.tools)})
+    return {
+        "mcp_ready": _mcp_ready,
+        "mcp_error": _mcp_error,
+        "mcp_servers": servers,
     }
 
 
