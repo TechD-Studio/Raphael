@@ -43,6 +43,52 @@ def _resolve_backend(cfg: dict) -> str:
     return backend
 
 
+def _find_mflux_python() -> str | None:
+    """mflux 를 import 가능한 Python 절대 경로를 찾는다.
+
+    1) sys.executable — 데몬을 띄운 인터프리터. 보통 가장 정확.
+       단 PyInstaller bootloader 일 경우 -c 인자를 못 받아 실패하므로 제외.
+    2) 흔한 venv 경로들(현재 cwd, 사용자 홈 등) 의 python3.
+
+    각 후보에 대해 `python -c "import mflux"` 로 검증한다 (timeout 5s).
+    """
+    import os
+    import subprocess
+    import sys
+
+    candidates: list[str] = []
+
+    # (1) sys.executable — PyInstaller frozen 환경이면 _MEIPASS 가 set 됨
+    if not getattr(sys, "frozen", False) and "_MEIPASS" not in dir(sys):
+        candidates.append(sys.executable)
+
+    # (2) 흔한 venv 위치
+    home = Path.home()
+    cwd = Path(os.getcwd())
+    for p in [
+        cwd / ".venv" / "bin" / "python3",
+        home / "Raphael" / ".venv" / "bin" / "python3",
+        Path("/Volumes/TechD/claude_projects/Raphael/.venv/bin/python3"),
+        Path("/opt/homebrew/bin/python3"),
+        Path("/usr/local/bin/python3"),
+    ]:
+        if p.exists() and str(p) not in candidates:
+            candidates.append(str(p))
+
+    for cand in candidates:
+        try:
+            r = subprocess.run(
+                [cand, "-c", "import mflux"],
+                capture_output=True,
+                timeout=5,
+            )
+            if r.returncode == 0:
+                return cand
+        except Exception:
+            continue
+    return None
+
+
 @dataclass
 class ImageGenTool:
     """이미지 생성 도구."""
@@ -114,25 +160,30 @@ class ImageGenTool:
             return {"ok": False, "error": f"DALL-E 생성 실패: {e}"}
 
     async def _generate_local(self, prompt: str, negative_prompt: str, size: str, cfg: dict) -> dict:
-        """mflux-generate CLI로 FLUX.1 이미지 생성."""
-        import asyncio
-        import shutil
-        import subprocess
+        """mflux-generate entry-point 을 Python -c 로 직접 호출.
 
-        mflux_bin = shutil.which("mflux-generate")
-        if not mflux_bin:
-            import sys
-            venv_bin = Path(sys.executable).parent / "mflux-generate"
-            if venv_bin.exists():
-                mflux_bin = str(venv_bin)
-        if not mflux_bin:
+        wrapper script(.venv/bin/mflux-generate) 의 shebang 이 옛 venv 경로를 가리켜
+        깨진 케이스(예: 프로젝트 디렉토리 이동 후)와 PyInstaller 환경 모두를 우회하기
+        위해, mflux 를 import 가능한 Python 인터프리터를 찾아 entry-point 의 main()
+        을 -c 로 호출한다.
+        """
+        import asyncio
+        import subprocess
+        import sys
+
+        py = _find_mflux_python()
+        if not py:
             return {
                 "ok": False,
                 "error": (
-                    "mflux 미설치. pip install mflux 로 설치하세요.\n"
-                    "설치 후 HuggingFace 인증도 필요합니다:\n"
-                    "  1. huggingface.co에서 FLUX.1-schnell 접근 승인\n"
-                    "  2. 설정 > 서버 > 이미지 생성에서 HUGGINGFACE_TOKEN 입력"
+                    "mflux 를 import 가능한 Python 인터프리터를 찾지 못했습니다.\n"
+                    "원인 후보:\n"
+                    "  1) mflux 미설치 — pip install mflux\n"
+                    "  2) venv 이동 후 wrapper 의 shebang 이 옛 경로를 가리킴 — \n"
+                    "     pip install --force-reinstall mflux 로 shebang 재생성\n"
+                    "  3) 데스크톱 .app 의 PyInstaller raphaeld 안에는 mflux 가 번들되지 않음 — \n"
+                    "     dev 모드(raphael web / CLI) 에서 사용하거나 시스템 venv 에 설치\n"
+                    "추가로 huggingface.co 에서 FLUX.1-schnell 접근 승인 + HUGGINGFACE_TOKEN 등록 필요."
                 ),
             }
 
@@ -147,8 +198,15 @@ class ImageGenTool:
         out_path = _output_dir() / f"flux_{ts}.png"
         seed = ts % 100000
 
+        # python -c "..." 로 wrapper shebang 우회. sys.argv[0] 만 mflux-generate 로
+        # 위장해서 mflux 의 argparse usage 메시지가 깔끔하게 나오도록.
+        launcher = (
+            "import sys; sys.argv[0] = 'mflux-generate'; "
+            "from mflux.models.flux.cli.flux_generate import main; "
+            "main()"
+        )
         cmd = [
-            mflux_bin,
+            py, "-c", launcher,
             "--model", "black-forest-labs/FLUX.1-schnell",
             "--quantize", "4",
             "--prompt", prompt,
@@ -158,7 +216,7 @@ class ImageGenTool:
             "--seed", str(seed),
             "--output", str(out_path),
         ]
-        logger.info(f"mflux-generate: {prompt[:60]}... ({w}x{h})")
+        logger.info(f"mflux-generate (via {py}): {prompt[:60]}... ({w}x{h})")
 
         def _run():
             try:
@@ -199,24 +257,13 @@ class ImageGenTool:
 
     def list_backends(self) -> list[dict]:
         """사용 가능한 백엔드 목록."""
-        import shutil
         from core.secrets import get_secret
         backends = []
 
-        has_mflux = False
+        # 실제 호출 가능 여부는 _find_mflux_python() 으로 검증 — 깨진 wrapper
+        # 가 PATH 에 있어도 가짜 True 가 나오지 않도록.
+        has_mflux = _find_mflux_python() is not None
         has_mlx_image = False
-        if shutil.which("mflux-generate"):
-            has_mflux = True
-        else:
-            import sys
-            if (Path(sys.executable).parent / "mflux-generate").exists():
-                has_mflux = True
-            else:
-                try:
-                    import mflux  # noqa
-                    has_mflux = True
-                except ImportError:
-                    pass
         try:
             import mlx_image  # noqa
             has_mlx_image = True
