@@ -12,6 +12,7 @@ import {
 } from "./api";
 import Settings from "./Settings";
 import Dashboard from "./Dashboard";
+import { Onboarding } from "./Onboarding";
 import { confirmDialog } from "./confirm";
 import "highlight.js/styles/github-dark.css";
 import "./App.css";
@@ -36,6 +37,8 @@ export default function App() {
   const [healthy, setHealthy] = useState<boolean>(false);
   // MCP 백그라운드 init 상태 — daemon 자체는 살아있어도 MCP 도구는 아직일 수 있음
   const [mcpReady, setMcpReady] = useState<boolean | null>(null);
+  // 첫 실행 onboarding 모달 표시 여부 (~/.raphael/onboarding_done.flag 없을 때)
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
   const [ollamaStatus, setOllamaStatus] = useState<"ok" | "unreachable" | "checking">("checking");
   const [tools, setTools] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -228,6 +231,23 @@ export default function App() {
       alive = false;
     };
   }, []);
+
+  // 첫 실행 onboarding 체크 — daemon healthy 직후 1회만.
+  useEffect(() => {
+    if (!healthy) return;
+    let alive = true;
+    (async () => {
+      try {
+        const s = await api.setupStatus();
+        if (alive && s.first_run) setShowOnboarding(true);
+      } catch {
+        // 옛 버전 데몬 — 무시
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [healthy]);
 
   // MCP readiness 폴링 — daemon 살아있고 MCP 가 아직이면 3초마다 /readyz 조회.
   // mcp_ready=true 가 될 때까지 폴링 후 종료.
@@ -834,6 +854,7 @@ export default function App() {
 
   return (
     <div className="app">
+      {showOnboarding && <Onboarding onClose={() => setShowOnboarding(false)} />}
       {updateInfo && (
         <div className="approval-overlay">
           <div className="approval-dialog">

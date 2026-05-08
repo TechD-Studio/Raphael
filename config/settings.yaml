@@ -14,7 +14,8 @@ models:
     - "gemma4-26b"
 
   ollama:
-    host: "100.x.x.x"
+    # 새 PC: localhost. 원격 GPU 서버 사용 시 desktop Settings UI 에서 host 변경.
+    host: "localhost"
     port: 11434
     timeout: 120
 

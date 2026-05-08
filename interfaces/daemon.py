@@ -2135,6 +2135,211 @@ def _mount_web_ui():
         logger.info(f"Web UI: /app → {_WEB_UI_DIR}")
 
 
+# _mount_web_ui() 는 catch-all GET("/{filename:path}") 라우트를 등록하므로
+# 모든 API 라우트가 등록된 후 (즉 파일 끝) 에서 호출해야 한다. setup/* 같은
+# 새 엔드포인트가 추가되면 그것도 이 호출 이전에 정의돼야 catch-all 에 안 먹힌다.
+
+
+# =============================================================================
+# Zero-config setup API — 새 PC 에서 터미널 작업 없이 모든 기능 활성화.
+# Onboarding 모달이 호출하는 엔드포인트들. 각 기능마다 check / install / pull
+# 트리오를 노출. 진행률 출력은 SSE.
+# =============================================================================
+
+
+def _which(cmd: str) -> str | None:
+    import shutil
+    return shutil.which(cmd)
+
+
+@app.get("/setup/status")
+def setup_status():
+    """전반적 onboarding 상태 — 첫 실행 모달 표시 여부 결정에 사용."""
+    import os.path
+    home = Path.home()
+    marker = home / ".raphael" / "onboarding_done.flag"
+    return {
+        "first_run": not marker.exists(),
+        "has_ollama_cli": _which("ollama") is not None,
+        "has_brew": _which("brew") is not None,
+        "has_node": _which("node") is not None,
+        "has_claude_cli": _which("claude") is not None,
+    }
+
+
+@app.post("/setup/mark-done")
+def setup_mark_done():
+    """첫 실행 onboarding 완료 표시. 다음 실행부터 모달 안 뜸."""
+    home = Path.home()
+    d = home / ".raphael"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "onboarding_done.flag").touch()
+    return {"ok": True}
+
+
+@app.get("/setup/ollama/status")
+async def setup_ollama_status():
+    """Ollama 설치/실행/모델 상태 종합 체크."""
+    import httpx
+    from config.settings import get_ollama_base_url
+
+    cli_present = _which("ollama") is not None
+    base = get_ollama_base_url()
+    server_running = False
+    models: list[str] = []
+    try:
+        async with httpx.AsyncClient(timeout=2) as c:
+            r = await c.get(f"{base}/api/tags")
+            if r.status_code == 200:
+                server_running = True
+                models = [m["name"] for m in (r.json().get("models") or [])]
+    except Exception:
+        pass
+    return {
+        "cli_installed": cli_present,
+        "server_running": server_running,
+        "host": base,
+        "models_pulled": models,
+    }
+
+
+@app.post("/setup/ollama/install")
+async def setup_ollama_install():
+    """Ollama 자동 설치 — Homebrew 우선, 없으면 공식 .pkg installer 다운로드 안내.
+
+    Homebrew 가 설치된 macOS 사용자라면 비대화형으로 brew install ollama 실행.
+    그 외에는 공식 설치 페이지 URL 을 반환해 사용자가 다운로드하도록 안내.
+    """
+    import asyncio
+    import sys
+
+    if sys.platform != "darwin":
+        return {
+            "ok": False,
+            "method": "manual",
+            "url": "https://ollama.com/download",
+            "message": "Linux/Windows: 공식 설치 페이지에서 다운로드하세요.",
+        }
+    if _which("ollama") is not None:
+        return {"ok": True, "method": "already-installed"}
+    if _which("brew") is not None:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "brew", "install", "ollama",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            if proc.returncode == 0:
+                return {"ok": True, "method": "brew", "log": stdout.decode()[-1000:]}
+            return {
+                "ok": False, "method": "brew",
+                "error": stderr.decode()[-1500:] or "brew install 실패",
+            }
+        except asyncio.TimeoutError:
+            return {"ok": False, "method": "brew", "error": "brew install 타임아웃"}
+        except Exception as e:
+            return {"ok": False, "method": "brew", "error": str(e)}
+    return {
+        "ok": False,
+        "method": "manual",
+        "url": "https://ollama.com/download/Ollama-darwin.zip",
+        "message": "Homebrew 미설치. 공식 다운로드 URL 을 브라우저에서 여세요.",
+    }
+
+
+@app.post("/setup/ollama/pull")
+async def setup_ollama_pull(req: dict):
+    """모델 pull — 진행률 SSE 스트리밍.
+
+    body: {"model": "gemma4:e4b"}
+    """
+    from fastapi.responses import StreamingResponse
+    import httpx
+    from config.settings import get_ollama_base_url
+
+    model = (req or {}).get("model") or "gemma4:e4b"
+    base = get_ollama_base_url()
+
+    async def stream():
+        try:
+            async with httpx.AsyncClient(timeout=None) as c:
+                async with c.stream("POST", f"{base}/api/pull",
+                                    json={"name": model, "stream": True}) as r:
+                    async for line in r.aiter_lines():
+                        if line:
+                            yield f"data: {line}\n\n"
+            yield "data: {\"status\":\"done\"}\n\n"
+        except Exception as e:
+            yield f"data: {{\"error\": {json.dumps(str(e))}}}\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@app.post("/setup/mflux/install")
+async def setup_mflux_install():
+    """mflux + 의존성을 사용자-로컬 venv 에 자동 설치.
+
+    venv 경로: ~/.raphael/tools/venv (데몬과 별개 — 데몬이 PyInstaller 일 때도 OK).
+    Image generation 은 이 venv 의 python 으로 entry-point 호출 (image_gen 의
+    _find_mflux_python 이 자동 발견).
+    """
+    import asyncio
+    import sys
+
+    venv_dir = Path.home() / ".raphael" / "tools" / "venv"
+    venv_dir.parent.mkdir(parents=True, exist_ok=True)
+    venv_py = venv_dir / "bin" / "python3"
+
+    if not venv_py.exists():
+        try:
+            # PyInstaller frozen 환경이면 sys.executable 은 raphaeld bootloader 라
+            # venv 생성 못 함. 시스템 python3 를 찾아서 사용.
+            base_py = sys.executable
+            if getattr(sys, "frozen", False) or "_MEIPASS" in dir(sys):
+                base_py = (
+                    _which("python3.12") or _which("python3.11") or _which("python3")
+                )
+                if not base_py:
+                    return {
+                        "ok": False,
+                        "error": "시스템에 python3 가 없어 venv 를 만들 수 없습니다. "
+                                 "Homebrew (brew install python) 로 먼저 설치하세요.",
+                    }
+            proc = await asyncio.create_subprocess_exec(
+                base_py, "-m", "venv", str(venv_dir),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+            if proc.returncode != 0:
+                return {"ok": False, "error": f"venv 생성 실패: {stderr.decode()[-500:]}"}
+        except Exception as e:
+            return {"ok": False, "error": f"venv 생성 예외: {e}"}
+
+    # mflux 설치
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            str(venv_py), "-m", "pip", "install", "--upgrade", "mflux",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+        if proc.returncode != 0:
+            return {"ok": False, "error": f"pip install 실패: {stderr.decode()[-1500:]}"}
+        # 설치 후 import 가능 여부 검증
+        proc2 = await asyncio.create_subprocess_exec(
+            str(venv_py), "-c", "import mflux; print('ok')",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr2 = await asyncio.wait_for(proc2.communicate(), timeout=10)
+        if proc2.returncode != 0:
+            return {"ok": False, "error": f"설치 후 import 실패: {stderr2.decode()[-500:]}"}
+        return {"ok": True, "venv_python": str(venv_py)}
+    except asyncio.TimeoutError:
+        return {"ok": False, "error": "pip install 타임아웃 (10분)"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# 모든 API 라우트 등록 후 catch-all (/{filename:path}) 마운트.
 _mount_web_ui()
 
 

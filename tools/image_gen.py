@@ -62,10 +62,11 @@ def _find_mflux_python() -> str | None:
     if not getattr(sys, "frozen", False) and "_MEIPASS" not in dir(sys):
         candidates.append(sys.executable)
 
-    # (2) 흔한 venv 위치
+    # (2) 흔한 venv 위치 — onboarding 모달이 만든 ~/.raphael/tools/venv 가 최우선.
     home = Path.home()
     cwd = Path(os.getcwd())
     for p in [
+        home / ".raphael" / "tools" / "venv" / "bin" / "python3",
         cwd / ".venv" / "bin" / "python3",
         home / "Raphael" / ".venv" / "bin" / "python3",
         Path("/Volumes/TechD/claude_projects/Raphael/.venv/bin/python3"),

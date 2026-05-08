@@ -1,5 +1,5 @@
 // Raphael 데몬 API 클라이언트
-const BASE =
+export const BASE =
   typeof window !== "undefined" && window.location.pathname.startsWith("/app")
     ? window.location.origin
     : "http://127.0.0.1:8765";
@@ -206,6 +206,35 @@ export const api = {
       mcp_error: string | null;
       mcp_servers: { name: string; tools: number }[];
     }>("/readyz"),
+  setupStatus: () =>
+    jget<{
+      first_run: boolean;
+      has_ollama_cli: boolean;
+      has_brew: boolean;
+      has_node: boolean;
+      has_claude_cli: boolean;
+    }>("/setup/status"),
+  setupMarkDone: () => jpost<{ ok: boolean }>("/setup/mark-done", {}),
+  setupOllamaStatus: () =>
+    jget<{
+      cli_installed: boolean;
+      server_running: boolean;
+      host: string;
+      models_pulled: string[];
+    }>("/setup/ollama/status"),
+  setupOllamaInstall: () =>
+    jpost<{
+      ok: boolean;
+      method: string;
+      url?: string;
+      message?: string;
+      error?: string;
+    }>("/setup/ollama/install", {}),
+  setupMfluxInstall: () =>
+    jpost<{ ok: boolean; venv_python?: string; error?: string }>(
+      "/setup/mflux/install",
+      {},
+    ),
   uploadAttachment: (file: File) =>
     jupload<{ path: string; size: number; filename: string }>("/upload", file),
   sessions: () => jget<SessionMeta[]>("/sessions"),
